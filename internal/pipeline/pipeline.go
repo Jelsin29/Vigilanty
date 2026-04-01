@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jelsin/vigilanty/internal/checker"
-	"github.com/jelsin/vigilanty/internal/config"
+	"github.com/Jelsin29/Vigilanty/internal/checker"
+	"github.com/Jelsin29/Vigilanty/internal/config"
 )
 
 const (

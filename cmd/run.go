@@ -6,10 +6,10 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/jelsin/vigilanty/internal/checker"
-	"github.com/jelsin/vigilanty/internal/config"
-	gitpkg "github.com/jelsin/vigilanty/internal/git"
-	"github.com/jelsin/vigilanty/internal/pipeline"
+	"github.com/Jelsin29/Vigilanty/internal/checker"
+	"github.com/Jelsin29/Vigilanty/internal/config"
+	gitpkg "github.com/Jelsin29/Vigilanty/internal/git"
+	"github.com/Jelsin29/Vigilanty/internal/pipeline"
 	"github.com/spf13/cobra"
 )
 

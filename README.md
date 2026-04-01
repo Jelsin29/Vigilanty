@@ -50,7 +50,7 @@ Vigilanty reads the staged diff, executes steps sequentially, and returns a non-
 ### Go install
 
 ```bash
-go install github.com/jelsin/vigilanty@v0.1.0
+go install github.com/Jelsin29/Vigilanty@v0.1.0
 ```
 
 ### Homebrew
@@ -60,7 +60,7 @@ Coming soon.
 ### Build from source
 
 ```bash
-git clone https://github.com/jelsin/vigilanty.git
+git clone https://github.com/Jelsin29/Vigilanty.git
 cd vigilanty
 make build
 ./vigilanty version
@@ -221,7 +221,7 @@ If the selected CLI is not installed, Vigilanty fails the step and prints the pr
 
 PRs are welcome.
 
-- Open an issue: https://github.com/jelsin/vigilanty/issues
+- Open an issue: https://github.com/Jelsin29/Vigilanty/issues
 - Discuss a change before large work
 - Keep contributions focused and documented
 

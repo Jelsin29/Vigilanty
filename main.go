@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/jelsin/vigilanty/cmd"
-	"github.com/jelsin/vigilanty/internal/checker"
+	"github.com/Jelsin29/Vigilanty/cmd"
+	"github.com/Jelsin29/Vigilanty/internal/checker"
 )
 
 func main() {

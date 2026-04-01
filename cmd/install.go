@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	gitpkg "github.com/jelsin/vigilanty/internal/git"
+	gitpkg "github.com/Jelsin29/Vigilanty/internal/git"
 	"github.com/spf13/cobra"
 )
 

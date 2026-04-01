@@ -1,4 +1,4 @@
-module github.com/jelsin/vigilanty
+module github.com/Jelsin29/Vigilanty
 
 go 1.22.2
 

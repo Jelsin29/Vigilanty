@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/jelsin/vigilanty/internal/config"
+	"github.com/Jelsin29/Vigilanty/internal/config"
 	"github.com/spf13/cobra"
 )
 
