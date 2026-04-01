@@ -103,7 +103,7 @@ func resolveRunConfigPath() (string, error) {
 	localPath := filepath.Join(".vigilanty.yml")
 	if _, err := os.Stat(localPath); err == nil {
 		return localPath, nil
-	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+	} else if !errors.Is(err, os.ErrNotExist) {
 		return "", newExitError(ExitConfigError, "%s", errorText(fmt.Sprintf("error: cannot inspect %s: %v", localPath, err)))
 	}
 
@@ -115,7 +115,7 @@ func resolveRunConfigPath() (string, error) {
 	globalPath := filepath.Join(homeDir, ".config", "vigilanty", "config.yml")
 	if _, err := os.Stat(globalPath); err == nil {
 		return globalPath, nil
-	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+	} else if !errors.Is(err, os.ErrNotExist) {
 		return "", newExitError(ExitConfigError, "%s", errorText(fmt.Sprintf("error: cannot inspect %s: %v", globalPath, err)))
 	}
 

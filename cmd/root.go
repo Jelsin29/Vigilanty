@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	"errors"
+	// "errors"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -45,6 +45,8 @@ func (e *ExitError) Error() string {
 	return e.Err.Error()
 }
 
+/**
+// unused function
 func exitCode(err error) int {
 	if err == nil {
 		return 0
@@ -57,6 +59,7 @@ func exitCode(err error) int {
 
 	return ExitCheckerFailure
 }
+*/
 
 func newExitError(code int, format string, args ...interface{}) error {
 	if code <= 0 {

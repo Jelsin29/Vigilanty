@@ -86,7 +86,7 @@ func IsHookInstalled() bool {
 func renderHookBlock() string {
 	return vigilantyHookStart + "\n" +
 		"if command -v vigilanty >/dev/null 2>&1; then\n" +
-		"  vigilanty run\n" +
+		"  $(pwd)/../vigilanty run\n" +
 		"else\n" +
 		"  printf '%s\\n' 'vigilanty: command not found' >&2\n" +
 		"  exit 1\n" +
