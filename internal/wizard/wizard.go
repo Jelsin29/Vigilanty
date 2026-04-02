@@ -92,6 +92,10 @@ func defaultResult(detectedPreset string) *InitResult {
 	}
 }
 
+func DefaultResult(detectedPreset string) *InitResult {
+	return defaultResult(detectedPreset)
+}
+
 func stdinIsTTY() (bool, error) {
 	info, err := os.Stdin.Stat()
 	if err != nil {

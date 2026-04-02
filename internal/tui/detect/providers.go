@@ -76,6 +76,9 @@ func DetectProviders(ctx context.Context) []ProviderInfo {
 		if provider.Name == "" {
 			continue
 		}
+		if provider.Found && provider.NeedsModel {
+			provider.Models = DiscoverModels(pctx, provider.Name)
+		}
 		providers = append(providers, provider)
 	}
 
@@ -243,4 +246,15 @@ func hasGHCopilotExtension(ctx context.Context, binary string) bool {
 	}
 
 	return false
+}
+
+func DiscoverModels(ctx context.Context, provider string) []string {
+	switch strings.TrimSpace(strings.ToLower(provider)) {
+	case "ollama":
+		return discoverOllamaModels(ctx)
+	case "lmstudio":
+		return discoverLMStudioModels(ctx)
+	default:
+		return []string{}
+	}
 }
