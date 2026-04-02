@@ -25,7 +25,6 @@ func newInitCommand() *cobra.Command {
 
 			if strings.TrimSpace(selectedPreset) == "" {
 				selectedPreset = detectProjectType()
-				printDetectedPresetMessage(selectedPreset)
 			}
 
 			content, err := config.ConfigYAMLForPreset(selectedPreset)
@@ -67,117 +66,42 @@ func newInitCommand() *cobra.Command {
 }
 
 func detectProjectType() string {
-	if fileExists("tsconfig.json") {
-		return "typescript"
+	languages := []map[string][]string{
+		{"typescript": {"tsconfig.json"}},
+		{"go": {"go.mod"}},
+		{"rust": {"Cargo.toml"}},
+		{"swift": {"Package.swift"}},
+		{"dotnet": {"*.csproj", "*.sln"}},
+		{"java": {"pom.xml", "build.gradle", "build.gradle.kts"}},
+		{"ruby": {"Gemfile"}},
+		{"php": {"composer.json"}},
+		{"python": {"requirements.txt", "pyproject.toml", "setup.py"}},
+		{"node": {"package.json"}},
 	}
 
-	if fileExists("go.mod") {
-		return "go"
+	for _, lang := range languages {
+		for preset, files := range lang {
+			for _, file := range files {
+				if fileExists(file) {
+					fmt.Fprintf(os.Stdout, "Detected %s project (found %s), using '%s' preset\n", preset, file, preset)
+					return preset
+				}
+			}
+		}
 	}
 
-	if fileExists("Cargo.toml") {
-		return "rust"
-	}
-
-	if fileExists("Package.swift") {
-		return "swift"
-	}
-
-	if hasDotnetProjectFiles() {
-		return "dotnet"
-	}
-
-	if fileExists("pom.xml") || fileExists("build.gradle") || fileExists("build.gradle.kts") {
-		return "java"
-	}
-
-	if fileExists("Gemfile") {
-		return "ruby"
-	}
-
-	if fileExists("composer.json") {
-		return "php"
-	}
-
-	if fileExists("requirements.txt") || fileExists("pyproject.toml") || fileExists("setup.py") {
-		return "python"
-	}
-
-	if fileExists("package.json") {
-		return "node"
-	}
-
+	fmt.Fprintf(os.Stdout, "No project type detected, using 'generic' preset\n")
 	return "generic"
 }
 
-func printDetectedPresetMessage(preset string) {
-	switch preset {
-	case "typescript":
-		fmt.Fprintf(os.Stdout, "Detected TypeScript project (found tsconfig.json), using 'typescript' preset\n")
-	case "go":
-		fmt.Fprintf(os.Stdout, "Detected Go project (found go.mod), using 'go' preset\n")
-	case "rust":
-		fmt.Fprintf(os.Stdout, "Detected Rust project (found Cargo.toml), using 'rust' preset\n")
-	case "swift":
-		fmt.Fprintf(os.Stdout, "Detected Swift project (found Package.swift), using 'swift' preset\n")
-	case "dotnet":
-		switch {
-		case hasMatchingFile("*.csproj"):
-			fmt.Fprintf(os.Stdout, "Detected .NET project (found .csproj file), using 'dotnet' preset\n")
-		case hasMatchingFile("*.sln"):
-			fmt.Fprintf(os.Stdout, "Detected .NET project (found .sln file), using 'dotnet' preset\n")
-		default:
-			fmt.Fprintf(os.Stdout, "Detected .NET project, using 'dotnet' preset\n")
-		}
-	case "java":
-		switch {
-		case fileExists("pom.xml"):
-			fmt.Fprintf(os.Stdout, "Detected Java project (found pom.xml), using 'java' preset\n")
-		case fileExists("build.gradle"):
-			fmt.Fprintf(os.Stdout, "Detected Java project (found build.gradle), using 'java' preset\n")
-		case fileExists("build.gradle.kts"):
-			fmt.Fprintf(os.Stdout, "Detected Java project (found build.gradle.kts), using 'java' preset\n")
-		default:
-			fmt.Fprintf(os.Stdout, "Detected Java project, using 'java' preset\n")
-		}
-	case "ruby":
-		fmt.Fprintf(os.Stdout, "Detected Ruby project (found Gemfile), using 'ruby' preset\n")
-	case "php":
-		fmt.Fprintf(os.Stdout, "Detected PHP project (found composer.json), using 'php' preset\n")
-	case "node":
-		fmt.Fprintf(os.Stdout, "Detected Node project (found package.json), using 'node' preset\n")
-	case "python":
-		switch {
-		case fileExists("requirements.txt"):
-			fmt.Fprintf(os.Stdout, "Detected Python project (found requirements.txt), using 'python' preset\n")
-		case fileExists("pyproject.toml"):
-			fmt.Fprintf(os.Stdout, "Detected Python project (found pyproject.toml), using 'python' preset\n")
-		case fileExists("setup.py"):
-			fmt.Fprintf(os.Stdout, "Detected Python project (found setup.py), using 'python' preset\n")
-		default:
-			fmt.Fprintf(os.Stdout, "Detected Python project, using 'python' preset\n")
-		}
-	default:
-		fmt.Fprintf(os.Stdout, "No project type detected, using 'generic' preset\n")
-	}
-}
-
-func hasDotnetProjectFiles() bool {
-	return hasMatchingFile("*.csproj") || hasMatchingFile("*.sln")
-}
-
-func hasMatchingFile(pattern string) bool {
-	matches, err := filepath.Glob(pattern)
-	if err != nil {
-		return false
-	}
-
-	return len(matches) > 0
-}
-
 func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
+	if _, err := os.Stat(path); err == nil {
+		return true
+	}
+	if matches, err := filepath.Glob(path); err == nil && len(matches) > 0 {
+		return true
+	}
+	return false
 }
 
 func confirmOverwrite(path string) (bool, error) {
