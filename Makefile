@@ -3,7 +3,10 @@
 VERSION ?= dev
 LDFLAGS := -ldflags "-X github.com/Jelsin29/Vigilanty/cmd.Version=$(VERSION)"
 
-GOBIN := $(shell go env GOPATH)/bin
+GOBIN ?= $(shell go env GOBIN)
+ifeq ($(GOBIN),)
+GOBIN := $(shell go env GOPATH | cut -d: -f1)/bin
+endif
 PATH_PRESENT := $(shell echo $(PATH) | grep -q "$(GOBIN)" && echo "yes" || echo "no")
 
 build:
