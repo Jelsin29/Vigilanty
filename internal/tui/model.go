@@ -7,8 +7,16 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/jelsin29/vigilanty/internal/tui/detect"
-	"github.com/jelsin29/vigilanty/internal/wizard"
 )
+
+type Result struct {
+	ProjectType     string
+	FilePatterns    []string
+	ExcludePatterns []string
+	Provider        string
+	RulesFile       string
+	GenerateRules   bool
+}
 
 type Model struct {
 	step   Step
@@ -42,8 +50,8 @@ type Model struct {
 	done              bool
 }
 
-func NewModel(preset string) Model {
-	defaults := wizard.DefaultResult(preset)
+func New(preset string) Model {
+	defaults := defaultResult(preset)
 	spin := spinner.New(spinner.WithSpinner(spinner.MiniDot))
 	spin.Style = TitleStyle
 
@@ -65,6 +73,10 @@ func NewModel(preset string) Model {
 		excludePatterns:  append([]string(nil), defaults.ExcludePatterns...),
 		generateRules:    defaults.GenerateRules,
 	}
+}
+
+func NewModel(preset string) Model {
+	return New(preset)
 }
 
 func (m Model) Init() tea.Cmd {
@@ -142,7 +154,7 @@ func (m Model) View() string {
 	}
 }
 
-func (m Model) Result() *wizard.InitResult {
+func (m Model) Result() *Result {
 	if m.cancelled {
 		return nil
 	}
@@ -155,13 +167,62 @@ func (m Model) Result() *wizard.InitResult {
 		}
 	}
 
-	return &wizard.InitResult{
+	return &Result{
 		ProjectType:     m.preset,
 		FilePatterns:    append([]string(nil), m.includePatterns...),
 		ExcludePatterns: append([]string(nil), m.excludePatterns...),
 		Provider:        provider,
 		RulesFile:       "AGENTS.md",
 		GenerateRules:   m.generateRules,
+	}
+}
+
+func (m Model) Cancelled() bool {
+	return m.cancelled
+}
+
+func defaultResult(preset string) Result {
+	projectType := strings.ToLower(strings.TrimSpace(preset))
+	if projectType == "" {
+		projectType = "generic"
+	}
+
+	includePatterns, excludePatterns := defaultPatternsForPreset(projectType)
+
+	return Result{
+		ProjectType:     projectType,
+		FilePatterns:    append([]string(nil), includePatterns...),
+		ExcludePatterns: append([]string(nil), excludePatterns...),
+		Provider:        "claude",
+		RulesFile:       "AGENTS.md",
+		GenerateRules:   true,
+	}
+}
+
+func defaultPatternsForPreset(preset string) ([]string, []string) {
+	switch strings.ToLower(strings.TrimSpace(preset)) {
+	case "go":
+		return []string{"*.go"}, []string{"*_test.go", "vendor/"}
+	case "typescript":
+		return []string{"*.ts", "*.tsx"}, []string{"*.test.ts", "*.spec.ts", "node_modules/"}
+	case "node":
+		return []string{"*.js", "*.jsx", "*.ts", "*.tsx"}, []string{"*.test.js", "*.spec.js", "node_modules/", "dist/"}
+	case "python":
+		return []string{"*.py"}, []string{"*_test.py", "test_*", "__pycache__/"}
+	case "rust":
+		return []string{"*.rs"}, []string{"target/"}
+	case "java":
+		return []string{"*.java"}, []string{"*Test.java", "build/", "target/"}
+	case "dotnet":
+		return []string{"*.cs"}, []string{"*Tests.cs", "bin/", "obj/"}
+	case "ruby":
+		return []string{"*.rb"}, []string{"*_spec.rb", "spec/"}
+	case "swift":
+		return []string{"*.swift"}, []string{"*Tests.swift", ".build/"}
+	case "php":
+		return []string{"*.php"}, []string{"*Test.php", "vendor/"}
+	default:
+		return []string{"*"}, nil
 	}
 }
 
