@@ -203,25 +203,30 @@ func promptProvider(reader *bufio.Reader) (string, error) {
 			choice = "1"
 		}
 
-		switch choice {
-		case "1", "2", "4", "5":
-			return providers[indexForChoice(choice)], nil
-		case "3", "6", "7":
-			provider := providers[indexForChoice(choice)]
-			fmt.Fprintf(os.Stdout, "  Model for %s: ", provider)
-			model, err := readLine(reader)
-			if err != nil {
-				return "", err
-			}
-			model = strings.TrimSpace(model)
-			if model == "" {
-				fmt.Fprintln(os.Stdout, "  Please enter a model name.")
-				continue
-			}
-			return provider + ":" + model, nil
-		default:
+		idx := indexForChoice(choice)
+		if idx < 0 || idx >= len(providers) {
 			fmt.Fprintln(os.Stdout, "  Invalid choice. Please enter a number between 1 and 7.")
+			continue
 		}
+		provider := providers[idx]
+
+		// claude and codex work without specifying a model
+		if provider == "claude" || provider == "codex" {
+			return provider, nil
+		}
+
+		// everything else needs a model — gemini, ollama, opencode, lmstudio, github
+		fmt.Fprintf(os.Stdout, "  Model for %s: ", provider)
+		model, err := readLine(reader)
+		if err != nil {
+			return "", err
+		}
+		model = strings.TrimSpace(model)
+		if model == "" {
+			fmt.Fprintln(os.Stdout, "  Please enter a model name.")
+			continue
+		}
+		return provider + ":" + model, nil
 	}
 }
 
@@ -258,8 +263,10 @@ func indexForChoice(choice string) int {
 		return 4
 	case "6":
 		return 5
-	default:
+	case "7":
 		return 6
+	default:
+		return -1
 	}
 }
 
