@@ -209,16 +209,6 @@ If the selected CLI is not installed, Vigilanty fails the step and prints the pr
 | `3` | Git error |
 | `4` | Internal error |
 
-## Comparison with GGA
-
-| Aspect | Vigilanty | GGA |
-| --- | --- | --- |
-| Core model | Multi-step verification pipeline | Single AI-oriented review flow |
-| Implementation | Go CLI | Bash-based tooling |
-| Configuration | YAML file (`.vigilanty.yml`) | Sourced shell configuration |
-| Review input | Staged git diffs with truncation controls | More full-file oriented workflows |
-| Use case | Block bad commits with ordered checks | Fast AI review utility |
-
 ## Contributing
 
 PRs are welcome.
