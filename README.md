@@ -60,7 +60,7 @@ Coming soon.
 ### Build from source
 
 ```bash
-git clone https://github.com/Jelsin29/Vigilanty.git
+git clone https://github.com/Jelsin29/Vigilanty.git vigilanty
 cd vigilanty
 make build
 ./vigilanty version
