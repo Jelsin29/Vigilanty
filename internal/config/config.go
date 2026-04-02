@@ -31,10 +31,12 @@ type Config struct {
 }
 
 type GlobalConfig struct {
-	FailFast     bool   `yaml:"fail_fast"`
-	DiffMaxBytes int    `yaml:"diff_max_bytes"`
-	Timeout      string `yaml:"timeout"`
-	Verbose      bool   `yaml:"verbose"`
+	FailFast        bool     `yaml:"fail_fast"`
+	DiffMaxBytes    int      `yaml:"diff_max_bytes"`
+	Timeout         string   `yaml:"timeout"`
+	Verbose         bool     `yaml:"verbose"`
+	FilePatterns    []string `yaml:"file_patterns,omitempty"`
+	ExcludePatterns []string `yaml:"exclude_patterns,omitempty"`
 }
 
 type StepConfig struct {
@@ -44,6 +46,7 @@ type StepConfig struct {
 	Command         string                 `yaml:"command,omitempty"`
 	Provider        string                 `yaml:"provider,omitempty"`
 	Prompt          string                 `yaml:"prompt,omitempty"`
+	RulesFile       string                 `yaml:"rules_file,omitempty"`
 	Model           string                 `yaml:"model,omitempty"`
 	Timeout         string                 `yaml:"timeout,omitempty"`
 	Enabled         *bool                  `yaml:"enabled,omitempty"`

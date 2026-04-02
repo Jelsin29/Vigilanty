@@ -9,12 +9,15 @@ import (
 	"strings"
 
 	"github.com/jelsin29/vigilanty/internal/config"
+	"github.com/jelsin29/vigilanty/internal/rules"
+	"github.com/jelsin29/vigilanty/internal/wizard"
 	"github.com/spf13/cobra"
 )
 
 func newInitCommand() *cobra.Command {
 	var force bool
 	var preset string
+	var noInteractive bool
 
 	command := &cobra.Command{
 		Use:   "init",
@@ -22,12 +25,33 @@ func newInitCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			configPath := filepath.Join(".vigilanty.yml")
 			selectedPreset := preset
+			interactive := false
+			var result *wizard.InitResult
+
+			stdinIsTTY, err := stdinIsTTY()
+			if err != nil {
+				return newExitError(1, "%s", errorText(fmt.Sprintf("error: %v", err)))
+			}
 
 			if strings.TrimSpace(selectedPreset) == "" {
 				selectedPreset = detectProjectType()
+				if stdinIsTTY && !noInteractive {
+					interactive = true
+				}
 			}
 
-			content, err := config.ConfigYAMLForPreset(selectedPreset)
+			var content string
+			if interactive {
+				var runErr error
+				result, runErr = wizard.Run(selectedPreset)
+				if runErr != nil {
+					return newExitError(1, "%s", errorText(fmt.Sprintf("error: %v", runErr)))
+				}
+
+				content, err = config.ConfigYAMLForWizardResult(result)
+			} else {
+				content, err = config.ConfigYAMLForPreset(selectedPreset)
+			}
 			if err != nil {
 				return newExitError(1, "%s", errorText(fmt.Sprintf("error: %v", err)))
 			}
@@ -51,6 +75,29 @@ func newInitCommand() *cobra.Command {
 				return newExitError(1, "%s", errorText(fmt.Sprintf("error: cannot create %s: %v", configPath, err)))
 			}
 
+			if result != nil && result.GenerateRules {
+				root, err := os.Getwd()
+				if err != nil {
+					return newExitError(1, "%s", errorText(fmt.Sprintf("error: cannot inspect project root: %v", err)))
+				}
+
+				rulesPath := strings.TrimSpace(result.RulesFile)
+				if rulesPath == "" {
+					rulesPath = "AGENTS.md"
+				}
+
+				rulesContent := rules.Generate(rules.GenerateOptions{
+					ProjectType:     result.ProjectType,
+					FilePatterns:    result.FilePatterns,
+					ExcludePatterns: result.ExcludePatterns,
+					DetectedTools:   rules.DetectTools(root),
+				})
+				if err := os.WriteFile(rulesPath, []byte(rulesContent), 0o644); err != nil {
+					return newExitError(1, "%s", errorText(fmt.Sprintf("error: cannot create %s: %v", rulesPath, err)))
+				}
+				fmt.Fprintf(os.Stdout, "%s\n", successText(fmt.Sprintf("Created %s", rulesPath)))
+			}
+
 			fmt.Fprintf(os.Stdout, "%s\n", successText("Created .vigilanty.yml"))
 			fmt.Fprintf(os.Stdout, "Next steps:\n")
 			fmt.Fprintf(os.Stdout, "  1. Edit .vigilanty.yml to define your pipeline\n")
@@ -61,6 +108,7 @@ func newInitCommand() *cobra.Command {
 	}
 
 	command.Flags().BoolVar(&force, "force", false, "Overwrite .vigilanty.yml without prompting")
+	command.Flags().BoolVar(&noInteractive, "no-interactive", false, "Skip the interactive setup wizard")
 	command.Flags().StringVar(&preset, "preset", "", "Scaffold template preset: go, node, typescript, python, rust, java, dotnet, ruby, swift, php, generic")
 	return command
 }
@@ -105,9 +153,11 @@ func fileExists(path string) bool {
 }
 
 func confirmOverwrite(path string) (bool, error) {
-	if info, err := os.Stdin.Stat(); err != nil {
-		return false, fmt.Errorf("inspect stdin: %w", err)
-	} else if (info.Mode() & os.ModeCharDevice) == 0 {
+	isTTY, err := stdinIsTTY()
+	if err != nil {
+		return false, err
+	}
+	if !isTTY {
 		return false, fmt.Errorf("%s already exists. Re-run with --force to overwrite in non-interactive mode", path)
 	}
 
@@ -120,4 +170,13 @@ func confirmOverwrite(path string) (bool, error) {
 
 	answer := strings.ToLower(strings.TrimSpace(response))
 	return answer == "y" || answer == "yes", nil
+}
+
+func stdinIsTTY() (bool, error) {
+	info, err := os.Stdin.Stat()
+	if err != nil {
+		return false, fmt.Errorf("inspect stdin: %w", err)
+	}
+
+	return (info.Mode() & os.ModeCharDevice) != 0, nil
 }

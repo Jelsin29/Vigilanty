@@ -5,13 +5,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/jelsin29/vigilanty/internal/rules"
 )
 
 const defaultAIReviewTimeout = 120 * time.Second
@@ -20,9 +20,13 @@ var (
 	defaultAIPassPatterns = []string{`(?i)STATUS:\s*PASSED`, `(?i)\bPASS\b`}
 	defaultAIFailPatterns = []string{`(?i)STATUS:\s*FAILED`, `(?i)\bFAIL\b`}
 	aiInstallURLs         = map[string]string{
-		"claude": "https://docs.anthropic.com/en/docs/claude-code",
-		"gemini": "https://github.com/google-gemini/gemini-cli",
-		"ollama": "https://ollama.ai/download",
+		"claude":   "https://docs.anthropic.com/en/docs/claude-code",
+		"gemini":   "https://github.com/google-gemini/gemini-cli",
+		"ollama":   "https://ollama.com/download",
+		"codex":    "https://platform.openai.com/docs/codex/cli",
+		"opencode": "https://github.com/sst/opencode",
+		"lmstudio": "https://lmstudio.ai/",
+		"github":   "https://cli.github.com/",
 	}
 
 	claudeOutputFormatSupport sync.Once
@@ -39,6 +43,8 @@ type AIReviewChecker struct {
 	skipOnEmptyDiff bool
 	passPatterns    []string
 	failPatterns    []string
+	passRegexps     []*regexp.Regexp
+	failRegexps     []*regexp.Regexp
 }
 
 func newAIReviewChecker(cfg map[string]interface{}) (Checker, error) {
@@ -74,10 +80,18 @@ func newAIReviewChecker(cfg map[string]interface{}) (Checker, error) {
 
 	passPatterns := listStringConfigValue(cfg, "pass_pattern", defaultAIPassPatterns)
 	failPatterns := listStringConfigValue(cfg, "fail_pattern", defaultAIFailPatterns)
+	passRegexps, err := compilePatterns(passPatterns, "pass_pattern")
+	if err != nil {
+		return nil, err
+	}
+	failRegexps, err := compilePatterns(failPatterns, "fail_pattern")
+	if err != nil {
+		return nil, err
+	}
 
 	provider = strings.ToLower(strings.TrimSpace(provider))
 	switch provider {
-	case "claude", "gemini", "ollama":
+	case "claude", "gemini", "ollama", "codex", "opencode", "lmstudio", "github":
 	default:
 		return nil, fmt.Errorf("unsupported provider %q", provider)
 	}
@@ -96,6 +110,8 @@ func newAIReviewChecker(cfg map[string]interface{}) (Checker, error) {
 		skipOnEmptyDiff: skipOnEmptyDiff,
 		passPatterns:    passPatterns,
 		failPatterns:    failPatterns,
+		passRegexps:     passRegexps,
+		failRegexps:     failRegexps,
 	}, nil
 }
 
@@ -134,7 +150,8 @@ func (c *AIReviewChecker) Check(ctx CheckContext) CheckResult {
 	execCtx, cancel := context.WithTimeout(context.Background(), c.timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(execCtx, c.provider, c.providerArgs(prompt)...)
+	cmd := exec.CommandContext(execCtx, c.provider, c.providerArgs()...)
+	cmd.Stdin = strings.NewReader(prompt)
 	if strings.TrimSpace(ctx.Root) != "" {
 		cmd.Dir = ctx.Root
 	}
@@ -173,8 +190,8 @@ func (c *AIReviewChecker) Check(ctx CheckContext) CheckResult {
 
 	result.Output = stripMarkdown(strings.TrimSpace(result.Output))
 
-	hasPass := matchesAny(c.passPatterns, result.Output)
-	hasFail := matchesAny(c.failPatterns, result.Output)
+	hasPass := matchesAny(c.passRegexps, result.Output)
+	hasFail := matchesAny(c.failRegexps, result.Output)
 
 	switch {
 	case hasPass && hasFail:
@@ -192,30 +209,37 @@ func (c *AIReviewChecker) Check(ctx CheckContext) CheckResult {
 		if strings.TrimSpace(result.Output) == "" {
 			result.Output = fmt.Sprintf("ambiguous response: no pass/fail patterns matched regex patterns %s for pass and %s for fail", c.passPatterns, c.failPatterns)
 		} else {
-			result.Output = fmt.Sprintf("\nambiguous response: no pass/fail patterns matched. Regex Pattern (%s, %s, %v, %v)\nOutput: %s", c.passPatterns, c.failPatterns, hasPass, hasFail, strings.TrimSpace(result.Output))
+			result.Output = fmt.Sprintf("ambiguous response: no pass/fail patterns matched. Regex Pattern (%s, %s, %v, %v)\nOutput: %s", c.passPatterns, c.failPatterns, hasPass, hasFail, strings.TrimSpace(result.Output))
 		}
 		return result
 	}
 
-	return result
+	panic("unreachable")
 }
 
 func (c *AIReviewChecker) buildPrompt(ctx CheckContext) (string, error) {
-	rules, err := c.loadRules(ctx.Root)
-	if err != nil {
-		return "", err
+	rulesContent, hasRules := rules.Discover(ctx.Root, c.rulesFile)
+	truncatedDiff := truncateDiffLines(ctx.Diff, c.maxDiffLines)
+	if strings.TrimSpace(truncatedDiff) == "" {
+		truncatedDiff = "(empty diff)"
+	}
+
+	if hasRules {
+		var builder strings.Builder
+		builder.WriteString("## Code Review Rules\n")
+		builder.WriteString(strings.TrimSpace(rulesContent))
+		builder.WriteString("\n\n## Task\n")
+		builder.WriteString(strings.TrimSpace(c.prompt))
+		builder.WriteString("\n\n## Diff to Review\n")
+		builder.WriteString(truncatedDiff)
+		if !strings.HasSuffix(truncatedDiff, "\n") {
+			builder.WriteString("\n")
+		}
+		return builder.String(), nil
 	}
 
 	var builder strings.Builder
 	builder.WriteString("Review the staged changes and return a final verdict using STATUS: PASSED or STATUS: FAILED.\n")
-
-	if rules != "" {
-		builder.WriteString("\nRules:\n")
-		builder.WriteString(rules)
-		if !strings.HasSuffix(rules, "\n") {
-			builder.WriteString("\n")
-		}
-	}
 
 	if strings.TrimSpace(c.prompt) != "" {
 		builder.WriteString("\nAdditional Instructions:\n")
@@ -224,55 +248,30 @@ func (c *AIReviewChecker) buildPrompt(ctx CheckContext) (string, error) {
 	}
 
 	builder.WriteString("\nGit Diff:\n")
-	truncatedDiff := truncateDiffLines(ctx.Diff, c.maxDiffLines)
-	if strings.TrimSpace(truncatedDiff) == "" {
-		builder.WriteString("(empty diff)\n")
-	} else {
-		builder.WriteString(truncatedDiff)
-		if !strings.HasSuffix(truncatedDiff, "\n") {
-			builder.WriteString("\n")
-		}
+	builder.WriteString(truncatedDiff)
+	if !strings.HasSuffix(truncatedDiff, "\n") {
+		builder.WriteString("\n")
 	}
 
 	return builder.String(), nil
 }
 
-func (c *AIReviewChecker) loadRules(root string) (string, error) {
-	if c.rulesFile != "" {
-		content, err := os.ReadFile(resolveRulesPath(root, c.rulesFile))
-		if err != nil {
-			return "", fmt.Errorf("read rules file %q: %w", c.rulesFile, err)
-		}
-		return strings.TrimSpace(string(content)), nil
-	}
-
-	path, ok := discoverAgentsFile(root)
-	if !ok {
-		return "", nil
-	}
-
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return "", fmt.Errorf("read AGENTS.md %q: %w", path, err)
-	}
-
-	return strings.TrimSpace(string(content)), nil
-}
-
-func (c *AIReviewChecker) providerArgs(prompt string) []string {
+// providerArgs returns CLI flags for the provider. The prompt itself
+// gets piped through stdin to avoid hitting ARG_MAX on large diffs.
+func (c *AIReviewChecker) providerArgs() []string {
 	switch c.provider {
 	case "claude":
-		args := []string{"-p", prompt}
+		args := []string{"-p", "-"}
 		if claudeSupportsOutputFormat() {
 			args = append(args, "--output-format", "text")
 		}
 		return args
 	case "gemini":
-		return []string{"-p", prompt}
+		return []string{"-p", "-"}
 	case "ollama":
-		return []string{"run", c.model, prompt}
+		return []string{"run", c.model}
 	default:
-		return []string{"-p", prompt}
+		return []string{"-p", "-"}
 	}
 }
 
@@ -290,9 +289,8 @@ func claudeSupportsOutputFormat() bool {
 	return claudeHasOutputFormat
 }
 
-func matchesAny(patterns []string, text string) bool {
-	for _, pattern := range patterns {
-		re := regexp.MustCompile(pattern)
+func matchesAny(patterns []*regexp.Regexp, text string) bool {
+	for _, re := range patterns {
 		if re.MatchString(text) {
 			return true
 		}
@@ -300,13 +298,16 @@ func matchesAny(patterns []string, text string) bool {
 	return false
 }
 
+// stripANSI removes ANSI escape sequences from CLI output.
+// We only strip escapes here — markdown bold/italic removal was eating
+// legit characters like Go pointers (*T) and underscored identifiers.
+var ansiRe = regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]|\x1b\].*?\x1b\\|\x1b[^[\]]`)
+
 func stripMarkdown(s string) string {
-	ansi := regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]|\x1b[^[]`) // THIS CAUSES A TON OF ISSUES AND IMPOSSIBLE TO DEBUG
-	s = ansi.ReplaceAllString(s, "")
+	s = ansiRe.ReplaceAllString(s, "")
+	// only strip paired markdown emphasis, not bare chars
 	s = strings.ReplaceAll(s, "**", "")
 	s = strings.ReplaceAll(s, "__", "")
-	s = strings.ReplaceAll(s, "*", "")
-	s = strings.ReplaceAll(s, "_", "")
 	s = strings.ReplaceAll(s, "\u00a0", " ")
 	s = strings.ReplaceAll(s, "\r\n", "\n")
 	s = strings.ReplaceAll(s, "\r", "\n")
@@ -314,11 +315,55 @@ func stripMarkdown(s string) string {
 }
 
 func listStringConfigValue(cfg map[string]interface{}, key string, fallback []string) []string {
-	val, ok := cfg[key].([]string)
-	if !ok || len(val) == 0 {
+	raw, ok := cfg[key]
+	if !ok || raw == nil {
 		return fallback
 	}
-	return val
+
+	switch value := raw.(type) {
+	case string:
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return fallback
+		}
+		return []string{value}
+	case []string:
+		if len(value) == 0 {
+			return fallback
+		}
+		return value
+	case []interface{}:
+		patterns := make([]string, 0, len(value))
+		for _, item := range value {
+			text, ok := item.(string)
+			if !ok {
+				continue
+			}
+			text = strings.TrimSpace(text)
+			if text == "" {
+				continue
+			}
+			patterns = append(patterns, text)
+		}
+		if len(patterns) == 0 {
+			return fallback
+		}
+		return patterns
+	default:
+		return fallback
+	}
+}
+
+func compilePatterns(patterns []string, key string) ([]*regexp.Regexp, error) {
+	compiled := make([]*regexp.Regexp, 0, len(patterns))
+	for _, pattern := range patterns {
+		re, err := regexp.Compile(pattern)
+		if err != nil {
+			return nil, fmt.Errorf("ai review %s: %w", key, err)
+		}
+		compiled = append(compiled, re)
+	}
+	return compiled, nil
 }
 
 func intConfigValue(cfg map[string]interface{}, key string, fallback int) (int, error) {
@@ -353,43 +398,4 @@ func truncateDiffLines(diff string, limit int) string {
 	}
 
 	return strings.Join(lines[:limit], "\n") + fmt.Sprintf("\n[diff truncated at %d lines]", limit)
-}
-
-func resolveRulesPath(root string, candidate string) string {
-	if filepath.IsAbs(candidate) {
-		return candidate
-	}
-	if strings.TrimSpace(root) == "" {
-		return candidate
-	}
-	return filepath.Join(root, candidate)
-}
-
-func discoverAgentsFile(root string) (string, bool) {
-	searchRoots := []string{}
-	if strings.TrimSpace(root) != "" {
-		searchRoots = append(searchRoots, root)
-	}
-
-	homeDir, err := os.UserHomeDir()
-	if err == nil {
-		searchRoots = append(searchRoots, filepath.Join(homeDir, ".config", "opencode"))
-	}
-
-	for _, start := range searchRoots {
-		for dir := start; dir != ""; dir = filepath.Dir(dir) {
-			candidate := filepath.Join(dir, "AGENTS.md")
-
-			if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
-				return candidate, true
-			}
-
-			parent := filepath.Dir(dir)
-			if parent == dir {
-				break
-			}
-		}
-	}
-
-	return "", false
 }

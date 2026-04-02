@@ -223,6 +223,9 @@ func checkerConfig(step config.StepConfig) map[string]interface{} {
 	if strings.TrimSpace(step.Prompt) != "" {
 		merged["prompt"] = step.Prompt
 	}
+	if strings.TrimSpace(step.RulesFile) != "" {
+		merged["rules_file"] = step.RulesFile
+	}
 	if strings.TrimSpace(step.Model) != "" {
 		merged["model"] = step.Model
 	}
