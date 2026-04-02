@@ -20,9 +20,13 @@ var (
 	defaultAIPassPatterns = []string{`(?i)STATUS:\s*PASSED`, `(?i)\bPASS\b`}
 	defaultAIFailPatterns = []string{`(?i)STATUS:\s*FAILED`, `(?i)\bFAIL\b`}
 	aiInstallURLs         = map[string]string{
-		"claude": "https://docs.anthropic.com/en/docs/claude-code",
-		"gemini": "https://github.com/google-gemini/gemini-cli",
-		"ollama": "https://ollama.ai/download",
+		"claude":   "https://docs.anthropic.com/en/docs/claude-code",
+		"gemini":   "https://github.com/google-gemini/gemini-cli",
+		"ollama":   "https://ollama.com/download",
+		"codex":    "https://platform.openai.com/docs/codex/cli",
+		"opencode": "https://github.com/sst/opencode",
+		"lmstudio": "https://lmstudio.ai/",
+		"github":   "https://cli.github.com/",
 	}
 
 	claudeOutputFormatSupport sync.Once
@@ -39,6 +43,8 @@ type AIReviewChecker struct {
 	skipOnEmptyDiff bool
 	passPatterns    []string
 	failPatterns    []string
+	passRegexps     []*regexp.Regexp
+	failRegexps     []*regexp.Regexp
 }
 
 func newAIReviewChecker(cfg map[string]interface{}) (Checker, error) {
@@ -74,10 +80,18 @@ func newAIReviewChecker(cfg map[string]interface{}) (Checker, error) {
 
 	passPatterns := listStringConfigValue(cfg, "pass_pattern", defaultAIPassPatterns)
 	failPatterns := listStringConfigValue(cfg, "fail_pattern", defaultAIFailPatterns)
+	passRegexps, err := compilePatterns(passPatterns, "pass_pattern")
+	if err != nil {
+		return nil, err
+	}
+	failRegexps, err := compilePatterns(failPatterns, "fail_pattern")
+	if err != nil {
+		return nil, err
+	}
 
 	provider = strings.ToLower(strings.TrimSpace(provider))
 	switch provider {
-	case "claude", "gemini", "ollama":
+	case "claude", "gemini", "ollama", "codex", "opencode", "lmstudio", "github":
 	default:
 		return nil, fmt.Errorf("unsupported provider %q", provider)
 	}
@@ -96,6 +110,8 @@ func newAIReviewChecker(cfg map[string]interface{}) (Checker, error) {
 		skipOnEmptyDiff: skipOnEmptyDiff,
 		passPatterns:    passPatterns,
 		failPatterns:    failPatterns,
+		passRegexps:     passRegexps,
+		failRegexps:     failRegexps,
 	}, nil
 }
 
@@ -174,8 +190,8 @@ func (c *AIReviewChecker) Check(ctx CheckContext) CheckResult {
 
 	result.Output = stripMarkdown(strings.TrimSpace(result.Output))
 
-	hasPass := matchesAny(c.passPatterns, result.Output)
-	hasFail := matchesAny(c.failPatterns, result.Output)
+	hasPass := matchesAny(c.passRegexps, result.Output)
+	hasFail := matchesAny(c.failRegexps, result.Output)
 
 	switch {
 	case hasPass && hasFail:
@@ -193,12 +209,12 @@ func (c *AIReviewChecker) Check(ctx CheckContext) CheckResult {
 		if strings.TrimSpace(result.Output) == "" {
 			result.Output = fmt.Sprintf("ambiguous response: no pass/fail patterns matched regex patterns %s for pass and %s for fail", c.passPatterns, c.failPatterns)
 		} else {
-			result.Output = fmt.Sprintf("\nambiguous response: no pass/fail patterns matched. Regex Pattern (%s, %s, %v, %v)\nOutput: %s", c.passPatterns, c.failPatterns, hasPass, hasFail, strings.TrimSpace(result.Output))
+			result.Output = fmt.Sprintf("ambiguous response: no pass/fail patterns matched. Regex Pattern (%s, %s, %v, %v)\nOutput: %s", c.passPatterns, c.failPatterns, hasPass, hasFail, strings.TrimSpace(result.Output))
 		}
 		return result
 	}
 
-	return result
+	panic("unreachable")
 }
 
 func (c *AIReviewChecker) buildPrompt(ctx CheckContext) (string, error) {
@@ -273,9 +289,8 @@ func claudeSupportsOutputFormat() bool {
 	return claudeHasOutputFormat
 }
 
-func matchesAny(patterns []string, text string) bool {
-	for _, pattern := range patterns {
-		re := regexp.MustCompile(pattern)
+func matchesAny(patterns []*regexp.Regexp, text string) bool {
+	for _, re := range patterns {
 		if re.MatchString(text) {
 			return true
 		}
@@ -300,11 +315,55 @@ func stripMarkdown(s string) string {
 }
 
 func listStringConfigValue(cfg map[string]interface{}, key string, fallback []string) []string {
-	val, ok := cfg[key].([]string)
-	if !ok || len(val) == 0 {
+	raw, ok := cfg[key]
+	if !ok || raw == nil {
 		return fallback
 	}
-	return val
+
+	switch value := raw.(type) {
+	case string:
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return fallback
+		}
+		return []string{value}
+	case []string:
+		if len(value) == 0 {
+			return fallback
+		}
+		return value
+	case []interface{}:
+		patterns := make([]string, 0, len(value))
+		for _, item := range value {
+			text, ok := item.(string)
+			if !ok {
+				continue
+			}
+			text = strings.TrimSpace(text)
+			if text == "" {
+				continue
+			}
+			patterns = append(patterns, text)
+		}
+		if len(patterns) == 0 {
+			return fallback
+		}
+		return patterns
+	default:
+		return fallback
+	}
+}
+
+func compilePatterns(patterns []string, key string) ([]*regexp.Regexp, error) {
+	compiled := make([]*regexp.Regexp, 0, len(patterns))
+	for _, pattern := range patterns {
+		re, err := regexp.Compile(pattern)
+		if err != nil {
+			return nil, fmt.Errorf("ai review %s: %w", key, err)
+		}
+		compiled = append(compiled, re)
+	}
+	return compiled, nil
 }
 
 func intConfigValue(cfg map[string]interface{}, key string, fallback int) (int, error) {

@@ -77,10 +77,24 @@ func Generate(opts GenerateOptions) string {
 // Priority: explicit rules_file from config > AGENTS.md in project root.
 func Discover(root string, configRulesFile string) (string, bool) {
 	if configRulesFile != "" {
+		root, err := filepath.Abs(root)
+		if err != nil {
+			return "", false
+		}
+
 		path := configRulesFile
 		if !filepath.IsAbs(path) {
 			path = filepath.Join(root, path)
 		}
+
+		path, err = filepath.Abs(path)
+		if err != nil {
+			return "", false
+		}
+		if path != root && !strings.HasPrefix(path, root+string(filepath.Separator)) {
+			return "", false
+		}
+
 		content, err := os.ReadFile(path)
 		if err != nil {
 			return "", false

@@ -72,12 +72,29 @@ func TestDiscoverAbsoluteRulesFilePath(t *testing.T) {
 	absPath := filepath.Join(dir, "abs-rules.md")
 	os.WriteFile(absPath, []byte("absolute rules"), 0o644)
 
-	content, ok := Discover("/some/other/root", absPath)
+	content, ok := Discover(dir, absPath)
 	if !ok {
 		t.Fatal("Discover() ok = false, want true for absolute path")
 	}
 	if content != "absolute rules" {
 		t.Fatalf("Discover() = %q, want 'absolute rules'", content)
+	}
+}
+
+func TestDiscoverRejectsPathTraversalOutsideRoot(t *testing.T) {
+	root := t.TempDir()
+	outsideDir := t.TempDir()
+	outsidePath := filepath.Join(outsideDir, "outside-rules.md")
+	if err := os.WriteFile(outsidePath, []byte("outside rules"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	content, ok := Discover(root, outsidePath)
+	if ok {
+		t.Fatal("Discover() ok = true, want false for path outside root")
+	}
+	if content != "" {
+		t.Fatalf("Discover() content = %q, want empty", content)
 	}
 }
 

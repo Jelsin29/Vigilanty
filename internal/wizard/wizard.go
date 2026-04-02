@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -205,7 +206,7 @@ func promptProvider(reader *bufio.Reader) (string, error) {
 
 		idx := indexForChoice(choice)
 		if idx < 0 || idx >= len(providers) {
-			fmt.Fprintln(os.Stdout, "  Invalid choice. Please enter a number between 1 and 7.")
+			fmt.Fprintf(os.Stdout, "  Invalid choice. Please enter a number between 1 and %d.\n", len(providers))
 			continue
 		}
 		provider := providers[idx]
@@ -216,17 +217,19 @@ func promptProvider(reader *bufio.Reader) (string, error) {
 		}
 
 		// everything else needs a model — gemini, ollama, opencode, lmstudio, github
-		fmt.Fprintf(os.Stdout, "  Model for %s: ", provider)
-		model, err := readLine(reader)
-		if err != nil {
-			return "", err
+		for {
+			fmt.Fprintf(os.Stdout, "  Model for %s: ", provider)
+			model, err := readLine(reader)
+			if err != nil {
+				return "", err
+			}
+			model = strings.TrimSpace(model)
+			if model == "" {
+				fmt.Fprintln(os.Stdout, "  Please enter a model name.")
+				continue
+			}
+			return provider + ":" + model, nil
 		}
-		model = strings.TrimSpace(model)
-		if model == "" {
-			fmt.Fprintln(os.Stdout, "  Please enter a model name.")
-			continue
-		}
-		return provider + ":" + model, nil
 	}
 }
 
@@ -250,24 +253,11 @@ func promptGenerateRules(reader *bufio.Reader) (bool, error) {
 }
 
 func indexForChoice(choice string) int {
-	switch choice {
-	case "1":
-		return 0
-	case "2":
-		return 1
-	case "3":
-		return 2
-	case "4":
-		return 3
-	case "5":
-		return 4
-	case "6":
-		return 5
-	case "7":
-		return 6
-	default:
+	n, err := strconv.Atoi(choice)
+	if err != nil || n < 1 {
 		return -1
 	}
+	return n - 1
 }
 
 func readLine(reader *bufio.Reader) (string, error) {

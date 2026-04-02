@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/jelsin29/vigilanty/internal/config"
+	"github.com/jelsin29/vigilanty/internal/rules"
 	"github.com/jelsin29/vigilanty/internal/wizard"
 	"github.com/spf13/cobra"
 )
@@ -25,6 +26,7 @@ func newInitCommand() *cobra.Command {
 			configPath := filepath.Join(".vigilanty.yml")
 			selectedPreset := preset
 			interactive := false
+			var result *wizard.InitResult
 
 			stdinIsTTY, err := stdinIsTTY()
 			if err != nil {
@@ -40,7 +42,8 @@ func newInitCommand() *cobra.Command {
 
 			var content string
 			if interactive {
-				result, runErr := wizard.Run(selectedPreset)
+				var runErr error
+				result, runErr = wizard.Run(selectedPreset)
 				if runErr != nil {
 					return newExitError(1, "%s", errorText(fmt.Sprintf("error: %v", runErr)))
 				}
@@ -70,6 +73,29 @@ func newInitCommand() *cobra.Command {
 
 			if err := os.WriteFile(configPath, []byte(content), 0o644); err != nil {
 				return newExitError(1, "%s", errorText(fmt.Sprintf("error: cannot create %s: %v", configPath, err)))
+			}
+
+			if result != nil && result.GenerateRules {
+				root, err := os.Getwd()
+				if err != nil {
+					return newExitError(1, "%s", errorText(fmt.Sprintf("error: cannot inspect project root: %v", err)))
+				}
+
+				rulesPath := strings.TrimSpace(result.RulesFile)
+				if rulesPath == "" {
+					rulesPath = "AGENTS.md"
+				}
+
+				rulesContent := rules.Generate(rules.GenerateOptions{
+					ProjectType:     result.ProjectType,
+					FilePatterns:    result.FilePatterns,
+					ExcludePatterns: result.ExcludePatterns,
+					DetectedTools:   rules.DetectTools(root),
+				})
+				if err := os.WriteFile(rulesPath, []byte(rulesContent), 0o644); err != nil {
+					return newExitError(1, "%s", errorText(fmt.Sprintf("error: cannot create %s: %v", rulesPath, err)))
+				}
+				fmt.Fprintf(os.Stdout, "%s\n", successText(fmt.Sprintf("Created %s", rulesPath)))
 			}
 
 			fmt.Fprintf(os.Stdout, "%s\n", successText("Created .vigilanty.yml"))

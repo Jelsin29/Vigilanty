@@ -1,6 +1,9 @@
 package checker
 
 import (
+	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -98,6 +101,29 @@ func TestProviderArgsOllama(t *testing.T) {
 	}
 }
 
+func TestNewAIReviewCheckerSupportsWizardProviders(t *testing.T) {
+	tests := []struct {
+		name     string
+		provider string
+	}{
+		{name: "codex", provider: "codex"},
+		{name: "opencode", provider: "opencode"},
+		{name: "lmstudio", provider: "lmstudio"},
+		{name: "github", provider: "github"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := newAIReviewChecker(map[string]interface{}{
+				"provider": tt.provider,
+			})
+			if err != nil {
+				t.Fatalf("newAIReviewChecker() error = %v, want nil", err)
+			}
+		})
+	}
+}
+
 func TestNewAIReviewCheckerRequiresProvider(t *testing.T) {
 	_, err := newAIReviewChecker(map[string]interface{}{
 		"prompt": "review",
@@ -114,6 +140,173 @@ func TestNewAIReviewCheckerOllamaRequiresModel(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("newAIReviewChecker(ollama) without model should fail")
+	}
+}
+
+func TestNewAIReviewCheckerUsesStringPatterns(t *testing.T) {
+	instance, err := newAIReviewChecker(map[string]interface{}{
+		"provider":     "claude",
+		"pass_pattern": `(?i)all good`,
+		"fail_pattern": `(?i)all bad`,
+	})
+	if err != nil {
+		t.Fatalf("newAIReviewChecker() error = %v", err)
+	}
+
+	c := instance.(*AIReviewChecker)
+	if len(c.passPatterns) != 1 || c.passPatterns[0] != `(?i)all good` {
+		t.Fatalf("passPatterns = %v, want custom string wrapped in slice", c.passPatterns)
+	}
+	if len(c.failPatterns) != 1 || c.failPatterns[0] != `(?i)all bad` {
+		t.Fatalf("failPatterns = %v, want custom string wrapped in slice", c.failPatterns)
+	}
+	if len(c.passRegexps) != 1 || len(c.failRegexps) != 1 {
+		t.Fatal("expected compiled regexps for custom patterns")
+	}
+}
+
+func TestNewAIReviewCheckerUsesInterfaceSlicePatterns(t *testing.T) {
+	instance, err := newAIReviewChecker(map[string]interface{}{
+		"provider":     "claude",
+		"pass_pattern": []interface{}{`(?i)all good`, 42, `(?i)ship it`},
+		"fail_pattern": []interface{}{`(?i)all bad`, nil},
+	})
+	if err != nil {
+		t.Fatalf("newAIReviewChecker() error = %v", err)
+	}
+
+	c := instance.(*AIReviewChecker)
+	if len(c.passPatterns) != 2 || c.passPatterns[0] != `(?i)all good` || c.passPatterns[1] != `(?i)ship it` {
+		t.Fatalf("passPatterns = %v, want only string entries", c.passPatterns)
+	}
+	if len(c.failPatterns) != 1 || c.failPatterns[0] != `(?i)all bad` {
+		t.Fatalf("failPatterns = %v, want only string entries", c.failPatterns)
+	}
+}
+
+func TestAIInstallURLsCoverAllProviders(t *testing.T) {
+	providers := []string{"claude", "gemini", "ollama", "codex", "opencode", "lmstudio", "github"}
+	for _, provider := range providers {
+		if strings.TrimSpace(aiInstallURLs[provider]) == "" {
+			t.Fatalf("aiInstallURLs[%q] is empty", provider)
+		}
+	}
+}
+
+func TestBuildPrompt(t *testing.T) {
+	tests := []struct {
+		name      string
+		rulesFile string
+		setup     func(t *testing.T, dir string)
+		want      []string
+		notWant   []string
+	}{
+		{
+			name:      "with rules file",
+			rulesFile: "AGENTS.md",
+			setup: func(t *testing.T, dir string) {
+				t.Helper()
+				path := filepath.Join(dir, "AGENTS.md")
+				if err := os.WriteFile(path, []byte("# Rules\nno panics"), 0o644); err != nil {
+					t.Fatalf("WriteFile() error = %v", err)
+				}
+			},
+			want: []string{"## Code Review Rules", "no panics", "## Task", "review this", "## Diff to Review", "diff --git"},
+		},
+		{
+			name:    "without rules file",
+			setup:   func(t *testing.T, dir string) {},
+			want:    []string{"Review the staged changes and return a final verdict using STATUS: PASSED or STATUS: FAILED.", "Additional Instructions:", "review this", "Git Diff:"},
+			notWant: []string{"## Code Review Rules"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			tt.setup(t, dir)
+
+			c := &AIReviewChecker{
+				prompt:       "review this",
+				rulesFile:    tt.rulesFile,
+				maxDiffLines: 10,
+			}
+
+			got, err := c.buildPrompt(CheckContext{Root: dir, Diff: "diff --git a/x b/x"})
+			if err != nil {
+				t.Fatalf("buildPrompt() error = %v", err)
+			}
+
+			for _, want := range tt.want {
+				if !strings.Contains(got, want) {
+					t.Fatalf("buildPrompt() = %q, want to contain %q", got, want)
+				}
+			}
+			for _, notWant := range tt.notWant {
+				if strings.Contains(got, notWant) {
+					t.Fatalf("buildPrompt() = %q, should not contain %q", got, notWant)
+				}
+			}
+		})
+	}
+}
+
+func TestMatchesAny(t *testing.T) {
+	patterns := []*regexp.Regexp{
+		regexp.MustCompile(`(?i)status:\s*passed`),
+		regexp.MustCompile(`(?i)\bpass\b`),
+	}
+
+	tests := []struct {
+		name string
+		text string
+		want bool
+	}{
+		{name: "matches first", text: "STATUS: PASSED", want: true},
+		{name: "matches second", text: "pass", want: true},
+		{name: "no match", text: "FAILED", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := matchesAny(patterns, tt.text); got != tt.want {
+				t.Fatalf("matchesAny() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestAIReviewCheckerAmbiguousResponse(t *testing.T) {
+	binDir := t.TempDir()
+	cmdPath := filepath.Join(binDir, "codex")
+	script := "#!/bin/sh\ncat >/dev/null\nprintf 'STATUS: PASSED\nSTATUS: FAILED\n'\n"
+	if err := os.WriteFile(cmdPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	oldPath := os.Getenv("PATH")
+	if err := os.Setenv("PATH", binDir+string(os.PathListSeparator)+oldPath); err != nil {
+		t.Fatalf("Setenv(PATH) error = %v", err)
+	}
+	defer os.Setenv("PATH", oldPath)
+
+	instance, err := newAIReviewChecker(map[string]interface{}{
+		"provider": "codex",
+		"prompt":   "review this diff",
+	})
+	if err != nil {
+		t.Fatalf("newAIReviewChecker() error = %v", err)
+	}
+
+	result := instance.Check(CheckContext{Root: t.TempDir(), Diff: "diff --git a/x b/x"})
+	if result.Status != Error {
+		t.Fatalf("Check().Status = %v, want %v", result.Status, Error)
+	}
+	if !strings.Contains(result.Output, "ambiguous response") {
+		t.Fatalf("Check().Output = %q, want ambiguous response message", result.Output)
+	}
+	if strings.HasPrefix(result.Output, "\n") {
+		t.Fatalf("Check().Output = %q, should not start with a newline", result.Output)
 	}
 }
 

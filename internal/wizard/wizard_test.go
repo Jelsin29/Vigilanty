@@ -1,6 +1,10 @@
 package wizard
 
 import (
+	"bufio"
+	"bytes"
+	"os"
+	"strings"
 	"testing"
 )
 
@@ -123,11 +127,15 @@ func TestIndexForChoiceInvalid(t *testing.T) {
 	if got := indexForChoice("0"); got != -1 {
 		t.Errorf("indexForChoice('0') = %d, want -1", got)
 	}
+	if got := indexForChoice("-1"); got != -1 {
+		t.Errorf("indexForChoice('-1') = %d, want -1", got)
+	}
 	if got := indexForChoice("abc"); got != -1 {
 		t.Errorf("indexForChoice('abc') = %d, want -1", got)
 	}
-	if got := indexForChoice("99"); got != -1 {
-		t.Errorf("indexForChoice('99') = %d, want -1", got)
+	// "99" returns 98 — valid int, bounds checked by caller
+	if got := indexForChoice("99"); got != 98 {
+		t.Errorf("indexForChoice('99') = %d, want 98", got)
 	}
 }
 
@@ -140,5 +148,68 @@ func TestDetectedPresetLabel(t *testing.T) {
 	label = detectedPresetLabel("something-weird")
 	if label != "Generic project" {
 		t.Fatalf("detectedPresetLabel('something-weird') = %q, want 'Generic project'", label)
+	}
+}
+
+func TestRunReturnsDefaultsForNonTTYInput(t *testing.T) {
+	originalStdin := os.Stdin
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("Pipe() error = %v", err)
+	}
+	defer func() {
+		os.Stdin = originalStdin
+		r.Close()
+		w.Close()
+	}()
+	os.Stdin = r
+
+	result, err := Run("go")
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if result.ProjectType != "go" {
+		t.Fatalf("Run().ProjectType = %q, want %q", result.ProjectType, "go")
+	}
+	if result.Provider != "claude" {
+		t.Fatalf("Run().Provider = %q, want %q", result.Provider, "claude")
+	}
+	if !result.GenerateRules {
+		t.Fatal("Run().GenerateRules = false, want true")
+	}
+}
+
+func TestPromptProviderKeepsSelectionWhenModelIsEmpty(t *testing.T) {
+	originalStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("Pipe() error = %v", err)
+	}
+	defer func() {
+		os.Stdout = originalStdout
+		r.Close()
+		w.Close()
+	}()
+	os.Stdout = w
+
+	reader := bufio.NewReader(strings.NewReader("2\n\ngemini-2.5-pro\n"))
+	done := make(chan string, 1)
+	go func() {
+		var buf bytes.Buffer
+		_, _ = buf.ReadFrom(r)
+		done <- buf.String()
+	}()
+
+	provider, err := promptProvider(reader)
+	_ = w.Close()
+	output := <-done
+	if err != nil {
+		t.Fatalf("promptProvider() error = %v", err)
+	}
+	if provider != "gemini:gemini-2.5-pro" {
+		t.Fatalf("promptProvider() = %q, want %q", provider, "gemini:gemini-2.5-pro")
+	}
+	if strings.Count(output, "? Select your AI provider:") != 1 {
+		t.Fatalf("provider menu rendered %d times, want 1", strings.Count(output, "? Select your AI provider:"))
 	}
 }
