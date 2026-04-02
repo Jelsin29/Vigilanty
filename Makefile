@@ -1,7 +1,7 @@
 .PHONY: build test lint clean install
 
 VERSION ?= dev
-LDFLAGS := -ldflags "-X github.com/Jelsin29/Vigilanty/cmd.Version=$(VERSION)"
+LDFLAGS := -ldflags "-X github.com/jelsin29/vigilanty/cmd.Version=$(VERSION)"
 
 GOBIN ?= $(shell go env GOBIN)
 ifeq ($(GOBIN),)

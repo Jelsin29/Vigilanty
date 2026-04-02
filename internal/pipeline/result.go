@@ -3,7 +3,7 @@ package pipeline
 import (
 	"time"
 
-	"github.com/Jelsin29/Vigilanty/internal/checker"
+	"github.com/jelsin29/vigilanty/internal/checker"
 )
 
 type PipelineResult struct {

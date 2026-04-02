@@ -17,7 +17,7 @@ builds:
       - goos: windows
         goarch: arm64
     ldflags:
-      - -s -w -X github.com/Jelsin29/Vigilanty/cmd.Version={{.Version}}
+      - -s -w -X github.com/jelsin29/vigilanty/cmd.Version={{.Version}}
 
 archives:
   - id: default
