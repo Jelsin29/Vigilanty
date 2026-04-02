@@ -152,7 +152,12 @@ func (c *AIReviewChecker) Check(ctx CheckContext) CheckResult {
 
 	if errors.Is(execCtx.Err(), context.DeadlineExceeded) {
 		result.Status = Error
-		result.Output = strings.TrimSpace(result.Output) + fmt.Sprintf("\nAI review timed out after %s", c.timeout)
+		trimmed := strings.TrimSpace(result.Output)
+		if trimmed == "" {
+			result.Output = fmt.Sprintf("AI review timed out after %s", c.timeout)
+		} else {
+			result.Output = trimmed + fmt.Sprintf("\nAI review timed out after %s", c.timeout)
+		}
 		return result
 	}
 
