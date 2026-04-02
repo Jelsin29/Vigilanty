@@ -9,12 +9,14 @@ import (
 	"strings"
 
 	"github.com/jelsin29/vigilanty/internal/config"
+	"github.com/jelsin29/vigilanty/internal/wizard"
 	"github.com/spf13/cobra"
 )
 
 func newInitCommand() *cobra.Command {
 	var force bool
 	var preset string
+	var noInteractive bool
 
 	command := &cobra.Command{
 		Use:   "init",
@@ -22,13 +24,33 @@ func newInitCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			configPath := filepath.Join(".vigilanty.yml")
 			selectedPreset := preset
+			interactive := false
+
+			stdinIsTTY, err := stdinIsTTY()
+			if err != nil {
+				return newExitError(1, "%s", errorText(fmt.Sprintf("error: %v", err)))
+			}
 
 			if strings.TrimSpace(selectedPreset) == "" {
 				selectedPreset = detectProjectType()
-				printDetectedPresetMessage(selectedPreset)
+				if stdinIsTTY && !noInteractive {
+					interactive = true
+				} else {
+					printDetectedPresetMessage(selectedPreset)
+				}
 			}
 
-			content, err := config.ConfigYAMLForPreset(selectedPreset)
+			var content string
+			if interactive {
+				result, runErr := wizard.Run(selectedPreset)
+				if runErr != nil {
+					return newExitError(1, "%s", errorText(fmt.Sprintf("error: %v", runErr)))
+				}
+
+				content, err = config.ConfigYAMLForWizardResult(result)
+			} else {
+				content, err = config.ConfigYAMLForPreset(selectedPreset)
+			}
 			if err != nil {
 				return newExitError(1, "%s", errorText(fmt.Sprintf("error: %v", err)))
 			}
@@ -62,6 +84,7 @@ func newInitCommand() *cobra.Command {
 	}
 
 	command.Flags().BoolVar(&force, "force", false, "Overwrite .vigilanty.yml without prompting")
+	command.Flags().BoolVar(&noInteractive, "no-interactive", false, "Skip the interactive setup wizard")
 	command.Flags().StringVar(&preset, "preset", "", "Scaffold template preset: go, node, typescript, python, rust, java, dotnet, ruby, swift, php, generic")
 	return command
 }
@@ -181,9 +204,11 @@ func fileExists(path string) bool {
 }
 
 func confirmOverwrite(path string) (bool, error) {
-	if info, err := os.Stdin.Stat(); err != nil {
-		return false, fmt.Errorf("inspect stdin: %w", err)
-	} else if (info.Mode() & os.ModeCharDevice) == 0 {
+	isTTY, err := stdinIsTTY()
+	if err != nil {
+		return false, err
+	}
+	if !isTTY {
 		return false, fmt.Errorf("%s already exists. Re-run with --force to overwrite in non-interactive mode", path)
 	}
 
@@ -196,4 +221,13 @@ func confirmOverwrite(path string) (bool, error) {
 
 	answer := strings.ToLower(strings.TrimSpace(response))
 	return answer == "y" || answer == "yes", nil
+}
+
+func stdinIsTTY() (bool, error) {
+	info, err := os.Stdin.Stat()
+	if err != nil {
+		return false, fmt.Errorf("inspect stdin: %w", err)
+	}
+
+	return (info.Mode() & os.ModeCharDevice) != 0, nil
 }

@@ -3,6 +3,9 @@ package config
 import (
 	"fmt"
 	"strings"
+
+	"github.com/jelsin29/vigilanty/internal/wizard"
+	"gopkg.in/yaml.v3"
 )
 
 func DefaultConfigYAML() string {
@@ -43,6 +46,60 @@ func ConfigYAMLForPreset(preset string) (string, error) {
 	}
 }
 
+func ConfigYAMLForWizardResult(result *wizard.InitResult) (string, error) {
+	if result == nil {
+		return "", fmt.Errorf("wizard result is required")
+	}
+
+	content, err := ConfigYAMLForPreset(result.ProjectType)
+	if err != nil {
+		return "", err
+	}
+
+	cfg, err := decodeConfig([]byte(content))
+	if err != nil {
+		return "", fmt.Errorf("parse preset config: %w", err)
+	}
+
+	cfg.Global.FilePatterns = append([]string(nil), result.FilePatterns...)
+	cfg.Global.ExcludePatterns = append([]string(nil), result.ExcludePatterns...)
+
+	provider, model := splitProviderAndModel(result.Provider)
+	for i := range cfg.Pipeline {
+		if strings.TrimSpace(cfg.Pipeline[i].Checker) != "ai-review" {
+			continue
+		}
+
+		cfg.Pipeline[i].Provider = provider
+		cfg.Pipeline[i].Model = model
+		break
+	}
+
+	encoded, err := yaml.Marshal(cfg)
+	if err != nil {
+		return "", fmt.Errorf("encode wizard config: %w", err)
+	}
+
+	return string(encoded), nil
+}
+
+func splitProviderAndModel(value string) (string, string) {
+	provider := strings.TrimSpace(value)
+	if provider == "" {
+		return "claude", ""
+	}
+
+	base, model, hasModel := strings.Cut(provider, ":")
+	base = strings.TrimSpace(base)
+	model = strings.TrimSpace(model)
+
+	if !hasModel {
+		return base, ""
+	}
+
+	return base, model
+}
+
 func genericPresetConfigYAML() string {
 	return `version: "1"
 
@@ -67,6 +124,7 @@ pipeline:
   - name: ai-review
     checker: ai-review
     provider: claude
+    rules_file: "AGENTS.md"
     prompt: "Review this diff for bugs, security issues, and maintainability problems. Reply with PASS if the changes look good, or FAIL followed by your findings."
     timeout: "120s"
     max_diff_lines: 500
@@ -108,6 +166,7 @@ pipeline:
   - name: ai-review
     checker: ai-review
     provider: claude
+    rules_file: "AGENTS.md"
     prompt: "Review this Go diff for bugs, security issues, performance regressions, and maintainability concerns. Reply with PASS if the changes look good, or FAIL followed by your findings."
     timeout: "120s"
     max_diff_lines: 500
@@ -149,6 +208,7 @@ pipeline:
   - name: ai-review
     checker: ai-review
     provider: claude
+    rules_file: "AGENTS.md"
     prompt: "Review this Node.js diff for bugs, security issues, and maintainability problems. Reply with PASS if the changes look good, or FAIL followed by your findings."
     timeout: "120s"
     max_diff_lines: 500
@@ -185,6 +245,7 @@ pipeline:
   - name: ai-review
     checker: ai-review
     provider: claude
+    rules_file: "AGENTS.md"
     prompt: "Review this Python diff for bugs, security issues, and maintainability problems. Reply with PASS if the changes look good, or FAIL followed by your findings."
     timeout: "120s"
     max_diff_lines: 500
@@ -226,6 +287,7 @@ pipeline:
   - name: ai-review
     checker: ai-review
     provider: claude
+    rules_file: "AGENTS.md"
     prompt: "Review this Rust diff for bugs, unsafe code, memory safety, and maintainability. Reply with PASS if the changes look good, or FAIL followed by your findings."
     timeout: "120s"
     max_diff_lines: 500
@@ -267,6 +329,7 @@ pipeline:
   - name: ai-review
     checker: ai-review
     provider: claude
+    rules_file: "AGENTS.md"
     prompt: "Review this TypeScript diff for type safety, bugs, security issues, and maintainability. Reply with PASS if the changes look good, or FAIL followed by your findings."
     timeout: "120s"
     max_diff_lines: 500
@@ -303,6 +366,7 @@ pipeline:
   - name: ai-review
     checker: ai-review
     provider: claude
+    rules_file: "AGENTS.md"
     prompt: "Review this Java diff for bugs, security vulnerabilities, design issues, and maintainability. Reply with PASS if the changes look good, or FAIL followed by your findings."
     timeout: "120s"
     max_diff_lines: 500
@@ -339,6 +403,7 @@ pipeline:
   - name: ai-review
     checker: ai-review
     provider: claude
+    rules_file: "AGENTS.md"
     prompt: "Review this .NET/C# diff for bugs, security issues, SOLID violations, and maintainability. Reply with PASS if the changes look good, or FAIL followed by your findings."
     timeout: "120s"
     max_diff_lines: 500
@@ -375,6 +440,7 @@ pipeline:
   - name: ai-review
     checker: ai-review
     provider: claude
+    rules_file: "AGENTS.md"
     prompt: "Review this Ruby diff for bugs, security issues, and maintainability. Reply with PASS if the changes look good, or FAIL followed by your findings."
     timeout: "120s"
     max_diff_lines: 500
@@ -411,6 +477,7 @@ pipeline:
   - name: ai-review
     checker: ai-review
     provider: claude
+    rules_file: "AGENTS.md"
     prompt: "Review this Swift diff for bugs, memory management issues, and maintainability. Reply with PASS if the changes look good, or FAIL followed by your findings."
     timeout: "120s"
     max_diff_lines: 500
@@ -447,6 +514,7 @@ pipeline:
   - name: ai-review
     checker: ai-review
     provider: claude
+    rules_file: "AGENTS.md"
     prompt: "Review this PHP diff for bugs, security issues, and maintainability. Reply with PASS if the changes look good, or FAIL followed by your findings."
     timeout: "120s"
     max_diff_lines: 500
