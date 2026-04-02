@@ -53,9 +53,11 @@ Vigilanty reads the staged diff, executes steps sequentially, and returns a non-
 go install github.com/jelsin29/vigilanty@v0.1.0
 ```
 
-### Homebrew
+### Homebrew (recommended)
 
-Coming soon.
+```bash
+brew install Jelsin29/tap/vigilanty
+```
 
 ### Build from source
 
