@@ -53,16 +53,28 @@ Vigilanty reads the staged diff, executes steps sequentially, and returns a non-
 go install github.com/jelsin29/vigilanty@v0.1.0
 ```
 
+### Binary Install 
+#### Linux
+```bash
+curl -fsSL https://raw.githubusercontent.com/Jelsin29/Vigilanty/main/scripts/autoinstall.sh | bash
+```
+
+OR Install a specific version:
+```bash
+curl -fsSL https://raw.githubusercontent.com/Jelsin29/Vigilanty/main/scripts/autoinstall.sh | VIGILANTY_VERSION=v0.1.0 bash
+```
+
 ### Homebrew (recommended)
 
 ```bash
 brew install Jelsin29/tap/vigilanty
 ```
 
+
 ### Build from source
 
 ```bash
-git clone https://github.com/jelsin29/vigilanty.git vigilanty
+git clone https://github.com/Jelsin29/Vigilanty.git vigilanty
 cd vigilanty
 make build
 ./vigilanty version
@@ -213,7 +225,7 @@ If the selected CLI is not installed, Vigilanty fails the step and prints the pr
 
 PRs are welcome.
 
-- Open an issue: https://github.com/jelsin29/vigilanty/issues
+- Open an issue: https://github.com/Jelsin29/Vigilanty/issues
 - Discuss a change before large work
 - Keep contributions focused and documented
 
