@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"runtime/debug"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -13,16 +14,18 @@ type Result struct {
 	ProjectType     string
 	FilePatterns    []string
 	ExcludePatterns []string
+	Providers       []string
 	Provider        string
 	RulesFile       string
 	GenerateRules   bool
 }
 
 type Model struct {
-	step   Step
-	preset string
-	width  int
-	height int
+	step    Step
+	preset  string
+	version string
+	width   int
+	height  int
 
 	sysInfo   detect.SystemInfo
 	providers []detect.ProviderInfo
@@ -32,16 +35,22 @@ type Model struct {
 	includeInput textinput.Model
 	excludeInput textinput.Model
 
-	selectedProvider int
-	providerCursor   int
-	modelCursor      int
-	rulesCursor      int
-	patternField     int
-	selectedModel    string
-	modelOptions     []string
-	includePatterns  []string
-	excludePatterns  []string
-	generateRules    bool
+	welcomeCursor         int
+	providerCursor        int
+	modelCursor           int
+	rulesCursor           int
+	patternField          int
+	selectedProvider      int
+	activeModelProvider   int
+	selectedModel         string
+	modelOptions          []string
+	includePatterns       []string
+	excludePatterns       []string
+	selectedProviders     map[int]bool
+	selectedProviderModel map[int]string
+	providerSelectionsSet bool
+	providerError         string
+	generateRules         bool
 
 	sysDetected       bool
 	providersDetected bool
@@ -62,16 +71,20 @@ func New(preset string) Model {
 	excludeInput.Blur()
 
 	return Model{
-		step:             StepWelcome,
-		preset:           defaults.ProjectType,
-		spinner:          spin,
-		textInput:        modelInput,
-		includeInput:     includeInput,
-		excludeInput:     excludeInput,
-		selectedProvider: -1,
-		includePatterns:  append([]string(nil), defaults.FilePatterns...),
-		excludePatterns:  append([]string(nil), defaults.ExcludePatterns...),
-		generateRules:    defaults.GenerateRules,
+		step:                  StepWelcome,
+		preset:                defaults.ProjectType,
+		spinner:               spin,
+		textInput:             modelInput,
+		includeInput:          includeInput,
+		excludeInput:          excludeInput,
+		version:               appVersion(),
+		selectedProvider:      -1,
+		activeModelProvider:   -1,
+		selectedProviders:     map[int]bool{},
+		selectedProviderModel: map[int]string{},
+		includePatterns:       append([]string(nil), defaults.FilePatterns...),
+		excludePatterns:       append([]string(nil), defaults.ExcludePatterns...),
+		generateRules:         defaults.GenerateRules,
 	}
 }
 
@@ -107,10 +120,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case AIProvidersMsg:
 		m.providers = msg.Providers
 		m.providersDetected = true
-		m.syncProviderCursor()
+		m.initializeProviderSelections()
+		m.clampProviderCursor()
 		return m, tea.Batch(cmds...)
 	case ModelsDiscoveredMsg:
 		m.modelOptions = msg.Models
+		if m.activeModelProvider >= 0 && m.activeModelProvider < len(m.providers) {
+			m.providers[m.activeModelProvider].Models = append([]string(nil), msg.Models...)
+		}
 		m.modelsDetected = true
 		if len(m.modelOptions) == 0 {
 			m.textInput.SetValue(m.selectedModel)
@@ -159,18 +176,17 @@ func (m Model) Result() *Result {
 		return nil
 	}
 
+	providers := m.selectedProviderNames()
 	provider := "claude"
-	if p, ok := m.selectedProviderInfo(); ok {
-		provider = p.Name
-		if p.NeedsModel && strings.TrimSpace(m.selectedModel) != "" {
-			provider += ":" + strings.TrimSpace(m.selectedModel)
-		}
+	if len(providers) > 0 {
+		provider = providers[0]
 	}
 
 	return &Result{
 		ProjectType:     m.preset,
 		FilePatterns:    append([]string(nil), m.includePatterns...),
 		ExcludePatterns: append([]string(nil), m.excludePatterns...),
+		Providers:       providers,
 		Provider:        provider,
 		RulesFile:       "AGENTS.md",
 		GenerateRules:   m.generateRules,
@@ -193,6 +209,7 @@ func defaultResult(preset string) Result {
 		ProjectType:     projectType,
 		FilePatterns:    append([]string(nil), includePatterns...),
 		ExcludePatterns: append([]string(nil), excludePatterns...),
+		Providers:       []string{"claude"},
 		Provider:        "claude",
 		RulesFile:       "AGENTS.md",
 		GenerateRules:   true,
@@ -233,4 +250,16 @@ func newInput(prompt string) textinput.Model {
 	input.TextStyle = ValueStyle
 	input.PlaceholderStyle = MutedStyle
 	return input
+}
+
+func appVersion() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "dev"
+	}
+	version := strings.TrimSpace(info.Main.Version)
+	if version == "" || version == "(devel)" {
+		return "dev"
+	}
+	return version
 }

@@ -17,6 +17,9 @@ func (m *Model) handleGlobalKeys(msg tea.KeyMsg) (tea.Cmd, bool) {
 	case "ctrl+c":
 		m.cancelled = true
 		return tea.Quit, true
+	case "q":
+		m.cancelled = true
+		return tea.Quit, true
 	case "esc":
 		return m.goBack(), true
 	}
@@ -49,11 +52,28 @@ func (m *Model) updateCurrentStep(msg tea.Msg) tea.Cmd {
 
 func (m *Model) updateWelcome(msg tea.Msg) tea.Cmd {
 	key, ok := msg.(tea.KeyMsg)
-	if !ok || key.Type != tea.KeyEnter {
+	if !ok {
 		return nil
 	}
 
-	return nextStepCmd(StepSystemInfo)
+	switch key.String() {
+	case "j", "down":
+		if m.welcomeCursor < 1 {
+			m.welcomeCursor++
+		}
+	case "k", "up":
+		if m.welcomeCursor > 0 {
+			m.welcomeCursor--
+		}
+	case "enter":
+		if m.welcomeCursor == 1 {
+			m.cancelled = true
+			return tea.Quit
+		}
+		return nextStepCmd(StepSystemInfo)
+	}
+
+	return nil
 }
 
 func (m *Model) updateSystemInfo(msg tea.Msg) tea.Cmd {
@@ -80,31 +100,33 @@ func (m *Model) updateProviderSelect(msg tea.Msg) tea.Cmd {
 		return nil
 	}
 
-	choices := m.providerChoices()
-	if len(choices) == 0 {
-		return nil
-	}
-
 	switch key.String() {
 	case "j", "down":
-		if m.providerCursor < len(choices)-1 {
+		if m.providerCursor < m.providerMenuSize()-1 {
 			m.providerCursor++
 		}
 	case "k", "up":
 		if m.providerCursor > 0 {
 			m.providerCursor--
 		}
-	case "enter":
-		m.selectedProvider = choices[m.providerCursor]
-		m.selectedModel = ""
-		m.modelCursor = 0
-		m.modelOptions = nil
-		m.modelsDetected = false
-		provider, _ := m.selectedProviderInfo()
-		if !provider.NeedsModel {
-			return nextStepCmd(StepPatterns)
+	case "space", " ":
+		if m.providerMenuTarget() != "provider" {
+			return nil
 		}
-		return nextStepCmd(StepModelSelect)
+		m.toggleProvider(m.providerCursor)
+	case "enter":
+		switch m.providerMenuTarget() {
+		case "provider":
+			return nil
+		case "back":
+			return nextStepCmd(StepAIDetect)
+		}
+		if len(m.selectedProviderIndices()) == 0 {
+			m.providerError = "Select at least one provider to continue."
+			return nil
+		}
+		m.providerError = ""
+		return nextStepCmd(m.beginModelFlow())
 	}
 
 	return nil
@@ -118,11 +140,11 @@ func (m *Model) updateModelSelect(msg tea.Msg) tea.Cmd {
 
 	if len(m.modelOptions) == 0 {
 		if key.Type == tea.KeyEnter {
-			m.selectedModel = strings.TrimSpace(m.textInput.Value())
-			if m.selectedModel == "" {
+			next := m.storeCurrentModel(m.textInput.Value())
+			if next == StepModelSelect {
 				return nil
 			}
-			return nextStepCmd(StepPatterns)
+			return nextStepCmd(next)
 		}
 		return m.updateManualModelInput(msg)
 	}
@@ -137,8 +159,7 @@ func (m *Model) updateModelSelect(msg tea.Msg) tea.Cmd {
 			m.modelCursor--
 		}
 	case "enter":
-		m.selectedModel = m.modelOptions[m.modelCursor]
-		return nextStepCmd(StepPatterns)
+		return nextStepCmd(m.storeCurrentModel(m.modelOptions[m.modelCursor]))
 	}
 
 	return nil
@@ -184,7 +205,7 @@ func (m *Model) updateAgentsMd(msg tea.Msg) tea.Cmd {
 		if m.rulesCursor > 0 {
 			m.rulesCursor--
 		}
-	case "space":
+	case "space", " ":
 		if m.rulesCursor == 0 {
 			m.rulesCursor = 1
 		} else {
@@ -241,7 +262,7 @@ func (m *Model) goBack() tea.Cmd {
 	case StepModelSelect:
 		return nextStepCmd(StepProviderSelect)
 	case StepPatterns:
-		if p, ok := m.selectedProviderInfo(); ok && p.NeedsModel {
+		if m.activeModelProvider >= 0 {
 			return nextStepCmd(StepModelSelect)
 		}
 		return nextStepCmd(StepProviderSelect)
@@ -262,10 +283,19 @@ func (m *Model) enterStep(step Step) []tea.Cmd {
 		}
 		return []tea.Cmd{detectProvidersCmd()}
 	case StepModelSelect:
-		p, ok := m.selectedProviderInfo()
+		p, idx, ok := m.currentModelProvider()
 		if !ok || !p.NeedsModel {
 			return []tea.Cmd{nextStepCmd(StepPatterns)}
 		}
+		if existing := strings.TrimSpace(m.selectedProviderModel[idx]); existing != "" {
+			m.selectedModel = existing
+			m.modelOptions = append([]string(nil), p.Models...)
+			m.modelsDetected = len(m.modelOptions) > 0
+			return nil
+		}
+		m.modelOptions = append([]string(nil), p.Models...)
+		m.modelsDetected = len(m.modelOptions) > 0
+		m.textInput.SetValue("")
 		if len(m.modelOptions) > 0 {
 			return nil
 		}

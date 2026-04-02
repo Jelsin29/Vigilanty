@@ -2,11 +2,22 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/jelsin29/vigilanty/internal/tui/detect"
 )
+
+const cursor = "▸ "
+
+func (m Model) currentModelProvider() (detect.ProviderInfo, int, bool) {
+	if m.activeModelProvider < 0 || m.activeModelProvider >= len(m.providers) {
+		return detect.ProviderInfo{}, -1, false
+	}
+
+	return m.providers[m.activeModelProvider], m.activeModelProvider, true
+}
 
 func (m Model) selectedProviderInfo() (detect.ProviderInfo, bool) {
 	if m.selectedProvider < 0 || m.selectedProvider >= len(m.providers) {
@@ -16,34 +27,145 @@ func (m Model) selectedProviderInfo() (detect.ProviderInfo, bool) {
 	return m.providers[m.selectedProvider], true
 }
 
-func (m Model) providerChoices() []int {
-	found := make([]int, 0, len(m.providers))
-	all := make([]int, 0, len(m.providers))
-	for i, provider := range m.providers {
-		all = append(all, i)
-		if provider.Found {
-			found = append(found, i)
+func (m Model) selectedProviderIndices() []int {
+	indices := make([]int, 0, len(m.selectedProviders))
+	for idx := range m.selectedProviders {
+		if !m.selectedProviders[idx] {
+			continue
 		}
+		indices = append(indices, idx)
 	}
-	if len(found) > 0 {
-		return found
-	}
-	return all
+	sort.Ints(indices)
+	return indices
 }
 
-func (m *Model) syncProviderCursor() {
-	choices := m.providerChoices()
-	if len(choices) == 0 {
+func (m Model) selectedProviderNames() []string {
+	indices := m.selectedProviderIndices()
+	if len(indices) == 0 && m.selectedProvider >= 0 && m.selectedProvider < len(m.providers) {
+		indices = []int{m.selectedProvider}
+	}
+	providers := make([]string, 0, len(indices))
+	for _, idx := range indices {
+		provider := strings.TrimSpace(m.providers[idx].Name)
+		if provider == "" {
+			continue
+		}
+		model := strings.TrimSpace(m.selectedProviderModel[idx])
+		if model == "" && idx == m.selectedProvider {
+			model = strings.TrimSpace(m.selectedModel)
+		}
+		if model != "" {
+			providers = append(providers, provider+":"+model)
+			continue
+		}
+		providers = append(providers, provider)
+	}
+	return providers
+}
+
+func (m *Model) initializeProviderSelections() {
+	if m.providerSelectionsSet {
+		return
+	}
+	for i, provider := range m.providers {
+		if provider.Found {
+			m.selectedProviders[i] = true
+		}
+	}
+	m.providerSelectionsSet = true
+	m.syncPrimaryProvider()
+}
+
+func (m *Model) syncPrimaryProvider() {
+	indices := m.selectedProviderIndices()
+	if len(indices) == 0 {
+		m.selectedProvider = -1
+		return
+	}
+	m.selectedProvider = indices[0]
+}
+
+func (m Model) providerMenuSize() int {
+	return len(m.providers) + 2
+}
+
+func (m Model) providerMenuTarget() string {
+	if m.providerCursor >= len(m.providers) {
+		if m.providerCursor == len(m.providers) {
+			return "continue"
+		}
+		return "back"
+	}
+	return "provider"
+}
+
+func (m *Model) clampProviderCursor() {
+	max := m.providerMenuSize() - 1
+	if max < 0 {
 		m.providerCursor = 0
 		return
 	}
-	for i, idx := range choices {
-		if idx == m.selectedProvider {
-			m.providerCursor = i
-			return
-		}
+	if m.providerCursor < 0 {
+		m.providerCursor = 0
+		return
 	}
-	m.providerCursor = 0
+	if m.providerCursor > max {
+		m.providerCursor = max
+	}
+}
+
+func (m *Model) toggleProvider(index int) {
+	if index < 0 || index >= len(m.providers) {
+		return
+	}
+	if m.selectedProviders[index] {
+		delete(m.selectedProviders, index)
+		delete(m.selectedProviderModel, index)
+		m.providerError = ""
+		m.syncPrimaryProvider()
+		return
+	}
+	m.selectedProviders[index] = true
+	m.providerError = ""
+	m.syncPrimaryProvider()
+}
+
+func (m *Model) beginModelFlow() Step {
+	m.syncPrimaryProvider()
+	for _, idx := range m.selectedProviderIndices() {
+		provider := m.providers[idx]
+		if !provider.NeedsModel {
+			continue
+		}
+		if strings.TrimSpace(m.selectedProviderModel[idx]) != "" {
+			continue
+		}
+		m.activeModelProvider = idx
+		m.selectedModel = ""
+		m.modelCursor = 0
+		m.modelOptions = append([]string(nil), provider.Models...)
+		m.modelsDetected = len(provider.Models) > 0
+		m.textInput.SetValue("")
+		return StepModelSelect
+	}
+	m.activeModelProvider = -1
+	m.selectedModel = ""
+	m.modelOptions = nil
+	m.modelsDetected = false
+	return StepPatterns
+}
+
+func (m *Model) storeCurrentModel(value string) Step {
+	if m.activeModelProvider < 0 || m.activeModelProvider >= len(m.providers) {
+		return StepPatterns
+	}
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return StepModelSelect
+	}
+	m.selectedProviderModel[m.activeModelProvider] = trimmed
+	m.selectedModel = trimmed
+	return m.beginModelFlow()
 }
 
 func providerLabel(name string) string {
@@ -115,10 +237,17 @@ func centerLine(width int, text string) string {
 }
 
 func renderScreen(width int, title string, body []string, footer string) string {
-	lines := []string{TitleStyle.Render(title), ""}
+	lines := make([]string, 0, len(body)+4)
+	if title != "" {
+		lines = append(lines, TitleStyle.Render(title), "")
+	}
 	lines = append(lines, body...)
 	if footer != "" {
 		lines = append(lines, "", KeyHintStyle.Render(footer))
 	}
-	return strings.Join(lines, "\n")
+	content := strings.Join(lines, "\n")
+	if width > 0 {
+		content = lipgloss.NewStyle().MaxWidth(width - 8).Render(content)
+	}
+	return FrameStyle.Render(content)
 }

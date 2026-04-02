@@ -23,6 +23,7 @@ type InitResult struct {
 	ProjectType     string   // detected or selected preset
 	FilePatterns    []string // e.g. ["*.py", "*.pyi"]
 	ExcludePatterns []string // e.g. ["*_test.py", "*.spec.ts"]
+	Providers       []string // all selected providers, first entry is primary
 	Provider        string   // e.g. "claude", "gemini", "ollama:llama3"
 	RulesFile       string   // path to rules file, default "AGENTS.md"
 	GenerateRules   bool     // whether to generate AGENTS.md
@@ -56,6 +57,7 @@ func Run(detectedPreset string) (*InitResult, error) {
 		ProjectType:     result.ProjectType,
 		FilePatterns:    result.FilePatterns,
 		ExcludePatterns: result.ExcludePatterns,
+		Providers:       result.Providers,
 		Provider:        result.Provider,
 		RulesFile:       result.RulesFile,
 		GenerateRules:   result.GenerateRules,
@@ -74,6 +76,7 @@ func defaultResult(detectedPreset string) *InitResult {
 		ProjectType:     projectType,
 		FilePatterns:    append([]string(nil), includePatterns...),
 		ExcludePatterns: append([]string(nil), excludePatterns...),
+		Providers:       []string{"claude"},
 		Provider:        "claude",
 		RulesFile:       "AGENTS.md",
 		GenerateRules:   true,
