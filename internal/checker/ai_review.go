@@ -37,34 +37,29 @@ type AIReviewChecker struct {
 	timeout         time.Duration
 	maxDiffLines    int
 	skipOnEmptyDiff bool
-	passPatterns    []*regexp.Regexp
-	failPatterns    []*regexp.Regexp
+	passPatterns    []string
+	failPatterns    []string
 }
 
 func newAIReviewChecker(cfg map[string]interface{}) (Checker, error) {
-	provider, err := stringConfigValue(cfg, "provider")
-	if err != nil {
-		return nil, fmt.Errorf("ai review provider: %w", err)
-	}
+	var model, prompt, rulesFile, provider string
+	var ok bool
 
+	if provider, ok = cfg["provider"].(string); !ok || strings.TrimSpace(provider) == "" {
+		return nil, fmt.Errorf("ai review provider is required and must be a string")
+	}
+	if model, ok = cfg["model"].(string); !ok {
+		model = ""
+	}
+	if prompt, ok = cfg["prompt"].(string); !ok {
+		prompt = ""
+	}
+	if rulesFile, ok = cfg["rules_file"].(string); !ok {
+		rulesFile = ""
+	}
 	timeout, err := durationConfigValue(cfg, "timeout", defaultAIReviewTimeout)
 	if err != nil {
 		return nil, fmt.Errorf("ai review timeout: %w", err)
-	}
-
-	prompt, err := optionalStringConfigValue(cfg, "prompt")
-	if err != nil {
-		return nil, fmt.Errorf("ai review prompt: %w", err)
-	}
-
-	rulesFile, err := optionalStringConfigValue(cfg, "rules_file")
-	if err != nil {
-		return nil, fmt.Errorf("ai review rules_file: %w", err)
-	}
-
-	model, err := optionalStringConfigValue(cfg, "model")
-	if err != nil {
-		return nil, fmt.Errorf("ai review model: %w", err)
 	}
 
 	maxDiffLines, err := intConfigValue(cfg, "max_diff_lines", 500)
@@ -77,15 +72,8 @@ func newAIReviewChecker(cfg map[string]interface{}) (Checker, error) {
 		return nil, fmt.Errorf("ai review skip_on_empty_diff: %w", err)
 	}
 
-	passPatterns, err := regexConfigValue(cfg, "pass_pattern", "pass_patterns", defaultAIPassPatterns)
-	if err != nil {
-		return nil, fmt.Errorf("ai review pass_pattern: %w", err)
-	}
-
-	failPatterns, err := regexConfigValue(cfg, "fail_pattern", "fail_patterns", defaultAIFailPatterns)
-	if err != nil {
-		return nil, fmt.Errorf("ai review fail_pattern: %w", err)
-	}
+	passPatterns := listStringConfigValue(cfg, "pass_pattern", defaultAIPassPatterns)
+	failPatterns := listStringConfigValue(cfg, "fail_pattern", defaultAIFailPatterns)
 
 	provider = strings.ToLower(strings.TrimSpace(provider))
 	switch provider {
@@ -126,8 +114,7 @@ func (c *AIReviewChecker) Check(ctx CheckContext) CheckResult {
 		}
 	}
 
-	cliName := c.providerCLIName()
-	if _, err := exec.LookPath(cliName); err != nil {
+	if _, err := exec.LookPath(c.provider); err != nil {
 		return CheckResult{
 			Status:   Error,
 			Output:   fmt.Sprintf("AI CLI not found: %s. Install it from %s", c.provider, aiInstallURLs[c.provider]),
@@ -147,7 +134,7 @@ func (c *AIReviewChecker) Check(ctx CheckContext) CheckResult {
 	execCtx, cancel := context.WithTimeout(context.Background(), c.timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(execCtx, cliName, c.providerArgs(prompt)...)
+	cmd := exec.CommandContext(execCtx, c.provider, c.providerArgs(prompt)...)
 	if strings.TrimSpace(ctx.Root) != "" {
 		cmd.Dir = ctx.Root
 	}
@@ -165,11 +152,7 @@ func (c *AIReviewChecker) Check(ctx CheckContext) CheckResult {
 
 	if errors.Is(execCtx.Err(), context.DeadlineExceeded) {
 		result.Status = Error
-		if strings.TrimSpace(result.Output) == "" {
-			result.Output = fmt.Sprintf("AI review timed out after %s", c.timeout)
-		} else {
-			result.Output = strings.TrimSpace(result.Output) + fmt.Sprintf("\nAI review timed out after %s", c.timeout)
-		}
+		result.Output = strings.TrimSpace(result.Output) + fmt.Sprintf("\nAI review timed out after %s", c.timeout)
 		return result
 	}
 
@@ -183,24 +166,30 @@ func (c *AIReviewChecker) Check(ctx CheckContext) CheckResult {
 		return result
 	}
 
-	hasPass := matchesAny(c.passPatterns, response)
-	hasFail := matchesAny(c.failPatterns, response)
+	result.Output = stripMarkdown(strings.TrimSpace(result.Output))
+
+	hasPass := matchesAny(c.passPatterns,  result.Output)
+	hasFail := matchesAny(c.failPatterns,result.Output)
 
 	switch {
 	case hasPass && hasFail:
 		result.Status = Error
 		result.Output = strings.TrimSpace(result.Output) + "\nambiguous response: matched both pass and fail patterns"
+		return result
 	case hasPass:
 		result.Status = Passed
+		return result
 	case hasFail:
 		result.Status = Failed
-	default:
+		return result
+	case !hasPass && !hasFail:
 		result.Status = Error
 		if strings.TrimSpace(result.Output) == "" {
-			result.Output = "ambiguous response: no pass/fail patterns matched"
+			result.Output = fmt.Sprintf("ambiguous response: no pass/fail patterns matched regex patterns %s for pass and %s for fail", c.passPatterns, c.failPatterns)
 		} else {
-			result.Output = strings.TrimSpace(result.Output) + "\nambiguous response: no pass/fail patterns matched"
+			result.Output = fmt.Sprintf("\nambiguous response: no pass/fail patterns matched. Regex Pattern (%s, %s, %v, %v)\nOutput: %s", c.passPatterns, c.failPatterns, hasPass, hasFail, strings.TrimSpace(result.Output))
 		}
+		return result
 	}
 
 	return result
@@ -265,10 +254,6 @@ func (c *AIReviewChecker) loadRules(root string) (string, error) {
 	return strings.TrimSpace(string(content)), nil
 }
 
-func (c *AIReviewChecker) providerCLIName() string {
-	return c.provider
-}
-
 func (c *AIReviewChecker) providerArgs(prompt string) []string {
 	switch c.provider {
 	case "claude":
@@ -300,88 +285,42 @@ func claudeSupportsOutputFormat() bool {
 	return claudeHasOutputFormat
 }
 
-func matchesAny(patterns []*regexp.Regexp, value string) bool {
-	for _, pattern := range patterns {
-		if pattern.MatchString(value) {
+
+func matchesAny(patterns []string, text string) bool {
+	fmt.Printf("len(patterns)=%d\n", len(patterns))
+	for i, pattern := range patterns {
+		fmt.Printf("  pattern[%d]=%q\n", i, pattern)
+		re, err := regexp.Compile(pattern)
+		if err != nil {
+			fmt.Printf("  INVALID REGEX: %v\n", err)
+			continue
+		}
+		if re.MatchString(text) {
 			return true
 		}
 	}
 	return false
 }
 
-func regexListConfigValue(cfg map[string]interface{}, key string, fallback []string) ([]*regexp.Regexp, error) {
-	raw, ok := cfg[key]
-	if !ok || raw == nil {
-		return compileRegexes(fallback)
-	}
-
-	var values []string
-	switch typed := raw.(type) {
-	case string:
-		if strings.TrimSpace(typed) != "" {
-			values = []string{typed}
-		}
-	case []string:
-		values = typed
-	case []interface{}:
-		values = make([]string, 0, len(typed))
-		for _, item := range typed {
-			text, ok := item.(string)
-			if !ok {
-				return nil, fmt.Errorf("%q entries must be strings", key)
-			}
-			values = append(values, text)
-		}
-	default:
-		return nil, fmt.Errorf("%q must be a string or list of strings", key)
-	}
-
-	if len(values) == 0 {
-		return compileRegexes(fallback)
-	}
-
-	return compileRegexes(values)
+func stripMarkdown(s string) string {
+	ansi := regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]|\x1b[^[]`) // THIS CAUSES A TON OF ISSUES AND IMPOSSIBLE TO DEBUG
+	s = ansi.ReplaceAllString(s, "")
+	s = strings.ReplaceAll(s, "**", "")
+	s = strings.ReplaceAll(s, "__", "")
+	s = strings.ReplaceAll(s, "*", "")
+	s = strings.ReplaceAll(s, "_", "")
+	s = strings.ReplaceAll(s, "\u00a0", " ")
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.ReplaceAll(s, "\r", "\n")
+	return s
 }
 
-func regexConfigValue(cfg map[string]interface{}, singularKey string, listKey string, fallback []string) ([]*regexp.Regexp, error) {
-	if raw, ok := cfg[singularKey]; ok && raw != nil {
-		value, ok := raw.(string)
-		if !ok {
-			return nil, fmt.Errorf("%q must be a string", singularKey)
-		}
-		if strings.TrimSpace(value) == "" {
-			return compileRegexes(fallback)
-		}
-		return compileRegexes([]string{value})
+func listStringConfigValue(cfg map[string]interface{}, key string, fallback []string) []string {
+	val, ok := cfg[key].([]string)
+	if !ok || len(val) == 0 {
+		return fallback
 	}
-
-	return regexListConfigValue(cfg, listKey, fallback)
-}
-
-func compileRegexes(values []string) ([]*regexp.Regexp, error) {
-	patterns := make([]*regexp.Regexp, 0, len(values))
-	for _, value := range values {
-		compiled, err := regexp.Compile(value)
-		if err != nil {
-			return nil, fmt.Errorf("compile regex %q: %w", value, err)
-		}
-		patterns = append(patterns, compiled)
-	}
-	return patterns, nil
-}
-
-func optionalStringConfigValue(cfg map[string]interface{}, key string) (string, error) {
-	raw, ok := cfg[key]
-	if !ok || raw == nil {
-		return "", nil
-	}
-
-	value, ok := raw.(string)
-	if !ok {
-		return "", fmt.Errorf("%q must be a string", key)
-	}
-
-	return strings.TrimSpace(value), nil
+	return val
 }
 
 func intConfigValue(cfg map[string]interface{}, key string, fallback int) (int, error) {
@@ -442,7 +381,8 @@ func discoverAgentsFile(root string) (string, bool) {
 	for _, start := range searchRoots {
 		for dir := start; dir != ""; dir = filepath.Dir(dir) {
 			candidate := filepath.Join(dir, "AGENTS.md")
-			if fileExists(candidate) {
+
+			if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
 				return candidate, true
 			}
 
@@ -454,12 +394,4 @@ func discoverAgentsFile(root string) (string, bool) {
 	}
 
 	return "", false
-}
-
-func fileExists(path string) bool {
-	info, err := os.Stat(path)
-	if err != nil {
-		return false
-	}
-	return !info.IsDir()
 }
