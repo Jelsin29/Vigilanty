@@ -1,20 +1,15 @@
 package cmd
 
-const (
-	ansiReset  = "\033[0m"
-	ansiRed    = "\033[31m"
-	ansiGreen  = "\033[32m"
-	ansiYellow = "\033[33m"
-)
+import "github.com/jelsin29/vigilanty/internal/ui"
 
 func successText(message string) string {
-	return ansiGreen + message + ansiReset
+	return ui.SuccessText(message)
 }
 
 func warningText(message string) string {
-	return ansiYellow + message + ansiReset
+	return ui.WarningText(message)
 }
 
 func errorText(message string) string {
-	return ansiRed + message + ansiReset
+	return ui.ErrorText(message)
 }

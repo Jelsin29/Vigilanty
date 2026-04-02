@@ -6,7 +6,7 @@ import (
 	"os/exec"
 	"runtime"
 
-	gitpkg "github.com/Jelsin29/Vigilanty/internal/git"
+	gitpkg "github.com/jelsin29/vigilanty/internal/git"
 	"github.com/spf13/cobra"
 )
 
