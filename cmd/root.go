@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	// "errors"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -45,22 +44,6 @@ func (e *ExitError) Error() string {
 	return e.Err.Error()
 }
 
-/**
-// unused function
-func exitCode(err error) int {
-	if err == nil {
-		return 0
-	}
-
-	var exitErr *ExitError
-	if errors.As(err, &exitErr) && exitErr != nil && exitErr.Code > 0 {
-		return exitErr.Code
-	}
-
-	return ExitCheckerFailure
-}
-*/
-
 func newExitError(code int, format string, args ...interface{}) error {
 	if code <= 0 {
 		code = ExitCheckerFailure
@@ -88,6 +71,8 @@ func init() {
 	rootCmd.AddCommand(newInitCommand())
 	rootCmd.AddCommand(newInstallCommand())
 	rootCmd.AddCommand(newUninstallCommand())
+	rootCmd.AddCommand(newCacheCommand())
 	rootCmd.AddCommand(newRunCommand())
+	rootCmd.AddCommand(newConfigCommand())
 	rootCmd.AddCommand(newVersionCommand())
 }

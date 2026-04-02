@@ -81,9 +81,11 @@ func (c *ShellChecker) Check(ctx CheckContext) CheckResult {
 	cmd.Stderr = &output
 
 	done := make(chan struct{})
+	started := make(chan struct{})
 	go func() {
 		select {
 		case <-execCtx.Done():
+			<-started
 			if errors.Is(execCtx.Err(), context.DeadlineExceeded) {
 				_ = terminateCommand(cmd)
 			}
@@ -91,7 +93,17 @@ func (c *ShellChecker) Check(ctx CheckContext) CheckResult {
 		}
 	}()
 
-	err := cmd.Run()
+	if err := cmd.Start(); err != nil {
+		close(started)
+		close(done)
+		return CheckResult{
+			Status: Error,
+			Output: fmt.Sprintf("failed to start command: %v", err),
+		}
+	}
+	close(started)
+
+	err := cmd.Wait()
 	close(done)
 	result := CheckResult{
 		Output:   output.String(),
