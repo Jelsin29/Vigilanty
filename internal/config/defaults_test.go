@@ -1,0 +1,105 @@
+package config
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/jelsin29/vigilanty/internal/wizard"
+)
+
+func TestConfigYAMLForPresetKnownPresets(t *testing.T) {
+	presets := []string{"go", "node", "typescript", "python", "rust", "java", "dotnet", "ruby", "swift", "php", "generic"}
+
+	for _, preset := range presets {
+		content, err := ConfigYAMLForPreset(preset)
+		if err != nil {
+			t.Errorf("ConfigYAMLForPreset(%q) error = %v", preset, err)
+			continue
+		}
+		if !strings.Contains(content, "pipeline:") {
+			t.Errorf("ConfigYAMLForPreset(%q) missing 'pipeline:' key", preset)
+		}
+		if !strings.Contains(content, "ai-review") {
+			t.Errorf("ConfigYAMLForPreset(%q) missing ai-review step", preset)
+		}
+	}
+}
+
+func TestConfigYAMLForPresetUnknown(t *testing.T) {
+	_, err := ConfigYAMLForPreset("brainfuck")
+	if err == nil {
+		t.Fatal("ConfigYAMLForPreset('brainfuck') error = nil, want error")
+	}
+}
+
+func TestConfigYAMLForPresetEmptyIsGo(t *testing.T) {
+	content, err := ConfigYAMLForPreset("")
+	if err != nil {
+		t.Fatalf("ConfigYAMLForPreset('') error = %v", err)
+	}
+	// empty defaults to go preset which has golangci-lint
+	if !strings.Contains(content, "golangci-lint") {
+		t.Fatal("ConfigYAMLForPreset('') should default to go preset")
+	}
+}
+
+func TestConfigYAMLForWizardResultNil(t *testing.T) {
+	_, err := ConfigYAMLForWizardResult(nil)
+	if err == nil {
+		t.Fatal("ConfigYAMLForWizardResult(nil) error = nil, want error")
+	}
+}
+
+func TestConfigYAMLForWizardResultAppliesPatterns(t *testing.T) {
+	result := &wizard.InitResult{
+		ProjectType:     "go",
+		FilePatterns:    []string{"*.go", "*.mod"},
+		ExcludePatterns: []string{"vendor/"},
+		Provider:        "gemini:gemini-pro",
+		RulesFile:       "AGENTS.md",
+		GenerateRules:   true,
+	}
+
+	content, err := ConfigYAMLForWizardResult(result)
+	if err != nil {
+		t.Fatalf("ConfigYAMLForWizardResult() error = %v", err)
+	}
+
+	if !strings.Contains(content, "gemini") {
+		t.Error("wizard result should set provider to gemini")
+	}
+	// the YAML should be parseable
+	cfg, err := decodeConfig([]byte(content))
+	if err != nil {
+		t.Fatalf("generated YAML is not valid: %v", err)
+	}
+
+	if len(cfg.Global.FilePatterns) != 2 {
+		t.Errorf("file_patterns = %v, want 2 items", cfg.Global.FilePatterns)
+	}
+	if len(cfg.Global.ExcludePatterns) != 1 {
+		t.Errorf("exclude_patterns = %v, want 1 item", cfg.Global.ExcludePatterns)
+	}
+}
+
+func TestSplitProviderAndModel(t *testing.T) {
+	tests := []struct {
+		input        string
+		wantProvider string
+		wantModel    string
+	}{
+		{"claude", "claude", ""},
+		{"ollama:llama3", "ollama", "llama3"},
+		{"gemini:gemini-pro", "gemini", "gemini-pro"},
+		{"", "claude", ""},
+		{"github:gpt-4o", "github", "gpt-4o"},
+	}
+
+	for _, tt := range tests {
+		p, m := splitProviderAndModel(tt.input)
+		if p != tt.wantProvider || m != tt.wantModel {
+			t.Errorf("splitProviderAndModel(%q) = (%q, %q), want (%q, %q)",
+				tt.input, p, m, tt.wantProvider, tt.wantModel)
+		}
+	}
+}
