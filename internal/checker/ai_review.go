@@ -5,13 +5,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/jelsin29/vigilanty/internal/rules"
 )
 
 const defaultAIReviewTimeout = 120 * time.Second
@@ -201,21 +201,28 @@ func (c *AIReviewChecker) Check(ctx CheckContext) CheckResult {
 }
 
 func (c *AIReviewChecker) buildPrompt(ctx CheckContext) (string, error) {
-	rules, err := c.loadRules(ctx.Root)
-	if err != nil {
-		return "", err
+	rulesContent, hasRules := rules.Discover(ctx.Root, c.rulesFile)
+	truncatedDiff := truncateDiffLines(ctx.Diff, c.maxDiffLines)
+	if strings.TrimSpace(truncatedDiff) == "" {
+		truncatedDiff = "(empty diff)"
+	}
+
+	if hasRules {
+		var builder strings.Builder
+		builder.WriteString("## Code Review Rules\n")
+		builder.WriteString(strings.TrimSpace(rulesContent))
+		builder.WriteString("\n\n## Task\n")
+		builder.WriteString(strings.TrimSpace(c.prompt))
+		builder.WriteString("\n\n## Diff to Review\n")
+		builder.WriteString(truncatedDiff)
+		if !strings.HasSuffix(truncatedDiff, "\n") {
+			builder.WriteString("\n")
+		}
+		return builder.String(), nil
 	}
 
 	var builder strings.Builder
 	builder.WriteString("Review the staged changes and return a final verdict using STATUS: PASSED or STATUS: FAILED.\n")
-
-	if rules != "" {
-		builder.WriteString("\nRules:\n")
-		builder.WriteString(rules)
-		if !strings.HasSuffix(rules, "\n") {
-			builder.WriteString("\n")
-		}
-	}
 
 	if strings.TrimSpace(c.prompt) != "" {
 		builder.WriteString("\nAdditional Instructions:\n")
@@ -224,39 +231,12 @@ func (c *AIReviewChecker) buildPrompt(ctx CheckContext) (string, error) {
 	}
 
 	builder.WriteString("\nGit Diff:\n")
-	truncatedDiff := truncateDiffLines(ctx.Diff, c.maxDiffLines)
-	if strings.TrimSpace(truncatedDiff) == "" {
-		builder.WriteString("(empty diff)\n")
-	} else {
-		builder.WriteString(truncatedDiff)
-		if !strings.HasSuffix(truncatedDiff, "\n") {
-			builder.WriteString("\n")
-		}
+	builder.WriteString(truncatedDiff)
+	if !strings.HasSuffix(truncatedDiff, "\n") {
+		builder.WriteString("\n")
 	}
 
 	return builder.String(), nil
-}
-
-func (c *AIReviewChecker) loadRules(root string) (string, error) {
-	if c.rulesFile != "" {
-		content, err := os.ReadFile(resolveRulesPath(root, c.rulesFile))
-		if err != nil {
-			return "", fmt.Errorf("read rules file %q: %w", c.rulesFile, err)
-		}
-		return strings.TrimSpace(string(content)), nil
-	}
-
-	path, ok := discoverAgentsFile(root)
-	if !ok {
-		return "", nil
-	}
-
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return "", fmt.Errorf("read AGENTS.md %q: %w", path, err)
-	}
-
-	return strings.TrimSpace(string(content)), nil
 }
 
 func (c *AIReviewChecker) providerArgs(prompt string) []string {
@@ -353,43 +333,4 @@ func truncateDiffLines(diff string, limit int) string {
 	}
 
 	return strings.Join(lines[:limit], "\n") + fmt.Sprintf("\n[diff truncated at %d lines]", limit)
-}
-
-func resolveRulesPath(root string, candidate string) string {
-	if filepath.IsAbs(candidate) {
-		return candidate
-	}
-	if strings.TrimSpace(root) == "" {
-		return candidate
-	}
-	return filepath.Join(root, candidate)
-}
-
-func discoverAgentsFile(root string) (string, bool) {
-	searchRoots := []string{}
-	if strings.TrimSpace(root) != "" {
-		searchRoots = append(searchRoots, root)
-	}
-
-	homeDir, err := os.UserHomeDir()
-	if err == nil {
-		searchRoots = append(searchRoots, filepath.Join(homeDir, ".config", "opencode"))
-	}
-
-	for _, start := range searchRoots {
-		for dir := start; dir != ""; dir = filepath.Dir(dir) {
-			candidate := filepath.Join(dir, "AGENTS.md")
-
-			if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
-				return candidate, true
-			}
-
-			parent := filepath.Dir(dir)
-			if parent == dir {
-				break
-			}
-		}
-	}
-
-	return "", false
 }
