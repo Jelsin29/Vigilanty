@@ -11,7 +11,12 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/jelsin29/vigilanty/internal/tui"
 )
+
+var ErrCancelled = errors.New("wizard cancelled")
 
 // InitResult holds the user's choices from the interactive wizard.
 type InitResult struct {
@@ -25,7 +30,7 @@ type InitResult struct {
 
 // Run executes the interactive wizard and returns the user's choices.
 func Run(detectedPreset string) (*InitResult, error) {
-	defaults := defaultResult(detectedPreset)
+	defaults := DefaultResult(detectedPreset)
 
 	isTTY, err := stdinIsTTY()
 	if err != nil {
@@ -35,42 +40,25 @@ func Run(detectedPreset string) (*InitResult, error) {
 		return defaults, nil
 	}
 
-	reader := bufio.NewReader(os.Stdin)
-
-	fmt.Fprintln(os.Stdout, "🔧 Vigilanty Setup")
-	fmt.Fprintln(os.Stdout)
-	fmt.Fprintf(os.Stdout, "Detected: %s\n\n", detectedPresetLabel(defaults.ProjectType))
-
-	includePatterns, err := promptPatternList(reader, "include", defaults.FilePatterns)
+	m := tui.New(detectedPreset)
+	p := tea.NewProgram(m, tea.WithAltScreen())
+	finalModel, err := p.Run()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("run wizard: %w", err)
 	}
 
-	excludePatterns, err := promptPatternList(reader, "exclude", defaults.ExcludePatterns)
-	if err != nil {
-		return nil, err
+	result := finalModel.(tui.Model).Result()
+	if finalModel.(tui.Model).Cancelled() || result == nil {
+		return nil, ErrCancelled
 	}
-
-	provider, err := promptProvider(reader)
-	if err != nil {
-		return nil, err
-	}
-
-	generateRules, err := promptGenerateRules(reader)
-	if err != nil {
-		return nil, err
-	}
-
-	fmt.Fprintln(os.Stdout)
-	fmt.Fprintln(os.Stdout, "✅ Configuration complete!")
 
 	return &InitResult{
-		ProjectType:     defaults.ProjectType,
-		FilePatterns:    includePatterns,
-		ExcludePatterns: excludePatterns,
-		Provider:        provider,
-		RulesFile:       defaults.RulesFile,
-		GenerateRules:   generateRules,
+		ProjectType:     result.ProjectType,
+		FilePatterns:    result.FilePatterns,
+		ExcludePatterns: result.ExcludePatterns,
+		Provider:        result.Provider,
+		RulesFile:       result.RulesFile,
+		GenerateRules:   result.GenerateRules,
 	}, nil
 }
 

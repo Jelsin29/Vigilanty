@@ -25,7 +25,6 @@ func newInitCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			configPath := filepath.Join(".vigilanty.yml")
 			selectedPreset := preset
-			interactive := false
 			var result *wizard.InitResult
 
 			stdinIsTTY, err := stdinIsTTY()
@@ -35,16 +34,19 @@ func newInitCommand() *cobra.Command {
 
 			if strings.TrimSpace(selectedPreset) == "" {
 				selectedPreset = detectProjectType()
-				if stdinIsTTY && !noInteractive {
-					interactive = true
-				}
 			}
+
+			interactive := stdinIsTTY && !noInteractive
 
 			var content string
 			if interactive {
 				var runErr error
 				result, runErr = wizard.Run(selectedPreset)
 				if runErr != nil {
+					if errors.Is(runErr, wizard.ErrCancelled) {
+						fmt.Fprintln(os.Stdout, "Setup cancelled.")
+						return nil
+					}
 					return newExitError(1, "%s", errorText(fmt.Sprintf("error: %v", runErr)))
 				}
 
