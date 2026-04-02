@@ -35,10 +35,10 @@ func DetectSystem(ctx context.Context) SystemInfo {
 		OS:    runtime.GOOS,
 		Arch:  runtime.GOARCH,
 		Shell: getenv("SHELL"),
-		Tools: make([]ToolStatus, 0, 5),
+		Tools: make([]ToolStatus, 0, 1),
 	}
 
-	tools := []string{"go", "node", "git", "curl", "python3"}
+	tools := []string{"git"}
 	results := make([]ToolStatus, len(tools))
 
 	var wg sync.WaitGroup

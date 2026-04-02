@@ -8,18 +8,16 @@ func (m Model) viewSystemInfo() string {
 		return renderScreen(m.width, "System Detection", body, "esc: back")
 	}
 
-	body := []string{
-		fmt.Sprintf("  %s %s (%s)", padRight(LabelStyle.Render("OS"), 8), ValueStyle.Render(m.sysInfo.OS), ValueStyle.Render(m.sysInfo.Arch)),
-		fmt.Sprintf("  %s %s", padRight(LabelStyle.Render("Shell"), 8), ValueStyle.Render(emptyFallback(m.sysInfo.Shell, "unknown"))),
-		"",
-		"  " + LabelStyle.Render("Tools"),
+	gitStatus := CrossMark + " missing"
+	if len(m.sysInfo.Tools) > 0 && m.sysInfo.Tools[0].Found {
+		gitStatus = CheckMark + " found"
 	}
-	for _, tool := range m.sysInfo.Tools {
-		status := CrossMark + " not found"
-		if tool.Found {
-			status = CheckMark + " found"
-		}
-		body = append(body, fmt.Sprintf("    %s %s", padRight(ValueStyle.Render(tool.Name), 8), status))
+
+	body := []string{
+		fmt.Sprintf("  %s %s", padRight(LabelStyle.Render("OS"), 8), ValueStyle.Render(m.sysInfo.OS)),
+		fmt.Sprintf("  %s %s", padRight(LabelStyle.Render("Arch"), 8), ValueStyle.Render(m.sysInfo.Arch)),
+		fmt.Sprintf("  %s %s", padRight(LabelStyle.Render("Shell"), 8), ValueStyle.Render(emptyFallback(m.sysInfo.Shell, "unknown"))),
+		fmt.Sprintf("  %s %s", padRight(LabelStyle.Render("Git"), 8), gitStatus),
 	}
 
 	return renderScreen(m.width, "System Detection", body, "enter: continue • esc: back")

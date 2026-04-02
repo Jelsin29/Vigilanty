@@ -20,18 +20,22 @@ func TestDetectSystemReturnsRuntimeInfo(t *testing.T) {
 		t.Fatal("DetectSystem().Tools is empty")
 	}
 
-	goTool, ok := toolStatusByName(info.Tools, "go")
+	if len(info.Tools) != 1 {
+		t.Fatalf("DetectSystem().Tools len = %d, want 1", len(info.Tools))
+	}
+
+	gitTool, ok := toolStatusByName(info.Tools, "git")
 	if !ok {
-		t.Fatal("DetectSystem() did not include go tool")
+		t.Fatal("DetectSystem() did not include git tool")
 	}
-	if !goTool.Found {
-		t.Fatal("DetectSystem() reported go as missing")
+	if !gitTool.Found {
+		t.Fatal("DetectSystem() reported git as missing")
 	}
-	if goTool.Name != "go" {
-		t.Fatalf("ToolStatus.Name = %q, want %q", goTool.Name, "go")
+	if gitTool.Name != "git" {
+		t.Fatalf("ToolStatus.Name = %q, want %q", gitTool.Name, "git")
 	}
-	if goTool.Version == "" {
-		t.Fatal("DetectSystem() returned empty version for go")
+	if gitTool.Version == "" {
+		t.Fatal("DetectSystem() returned empty version for git")
 	}
 }
 

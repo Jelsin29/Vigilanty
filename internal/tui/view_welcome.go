@@ -1,13 +1,24 @@
 package tui
 
-import "strings"
+import "fmt"
 
 func (m Model) viewWelcome() string {
-	box := BorderedBox(strings.Join([]string{
+	items := []string{"Setup project", "Quit"}
+	body := []string{
 		centerLine(60, Banner(m.width)),
 		"",
-		centerLine(60, TitleStyle.Render("Vigilanty Setup")),
-	}, "\n"))
+		centerLine(60, TitleStyle.Render(fmt.Sprintf("Vigilanty %s — Pre-commit verification pipeline", m.version))),
+		"",
+	}
+	for i, item := range items {
+		line := "  " + item
+		if i == m.welcomeCursor {
+			line = cursor + SelectedStyle.Render(item)
+		} else {
+			line = "  " + UnselectedStyle.Render(item)
+		}
+		body = append(body, line)
+	}
 
-	return renderScreen(m.width, "", []string{box}, "press enter to continue • esc to quit")
+	return renderScreen(m.width, "", body, "j/k: navigate • enter: select • q: quit")
 }
