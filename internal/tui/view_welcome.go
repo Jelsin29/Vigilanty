@@ -1,13 +1,11 @@
 package tui
 
-import "fmt"
-
 func (m Model) viewWelcome() string {
 	items := []string{"Setup project", "Quit"}
 	body := []string{
 		centerLine(60, Banner(m.width)),
 		"",
-		centerLine(60, TitleStyle.Render(fmt.Sprintf("Vigilanty %s — Pre-commit verification pipeline", m.version))),
+		centerLine(60, RenderVersion(m.version)),
 		"",
 	}
 	for i, item := range items {

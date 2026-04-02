@@ -3,18 +3,21 @@ package tui
 import "github.com/charmbracelet/lipgloss"
 
 var (
-	ColorBase     = lipgloss.Color("#191724")
-	ColorSurface  = lipgloss.Color("#1f1d2e")
-	ColorOverlay  = lipgloss.Color("#6e6a86")
-	ColorText     = lipgloss.Color("#e0def4")
-	ColorSubtext  = lipgloss.Color("#908caa")
-	ColorLavender = lipgloss.Color("#c4a7e7")
-	ColorGreen    = lipgloss.Color("#9ccfd8")
-	ColorPeach    = lipgloss.Color("#f6c177")
-	ColorRed      = lipgloss.Color("#eb6f92")
-	ColorBlue     = lipgloss.Color("#31748f")
-	ColorMauve    = lipgloss.Color("#ebbcba")
-	ColorTeal     = lipgloss.Color("#9ccfd8")
+	ColorBase       = lipgloss.Color("#191724")
+	ColorSurface    = lipgloss.Color("#1f1d2e")
+	ColorOverlay    = lipgloss.Color("#6e6a86")
+	ColorText       = lipgloss.Color("#e0def4")
+	ColorSubtext    = lipgloss.Color("#908caa")
+	ColorLavender   = lipgloss.Color("#c4a7e7")
+	ColorGreen      = lipgloss.Color("#9ccfd8")
+	ColorPeach      = lipgloss.Color("#f6c177")
+	ColorRed        = lipgloss.Color("#eb6f92")
+	ColorBlue       = lipgloss.Color("#31748f")
+	ColorMauve      = lipgloss.Color("#ebbcba")
+	ColorTeal       = lipgloss.Color("#9ccfd8")
+	ColorBTTFOrange = lipgloss.Color("#FF6F00")
+	ColorBTTFGold   = lipgloss.Color("#FFB300")
+	ColorBTTFRed    = lipgloss.Color("#FF1744")
 
 	FrameStyle = lipgloss.NewStyle().
 			Border(lipgloss.DoubleBorder()).
