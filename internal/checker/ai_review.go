@@ -168,8 +168,8 @@ func (c *AIReviewChecker) Check(ctx CheckContext) CheckResult {
 
 	result.Output = stripMarkdown(strings.TrimSpace(result.Output))
 
-	hasPass := matchesAny(c.passPatterns,  result.Output)
-	hasFail := matchesAny(c.failPatterns,result.Output)
+	hasPass := matchesAny(c.passPatterns, result.Output)
+	hasFail := matchesAny(c.failPatterns, result.Output)
 
 	switch {
 	case hasPass && hasFail:
@@ -285,16 +285,9 @@ func claudeSupportsOutputFormat() bool {
 	return claudeHasOutputFormat
 }
 
-
 func matchesAny(patterns []string, text string) bool {
-	fmt.Printf("len(patterns)=%d\n", len(patterns))
-	for i, pattern := range patterns {
-		fmt.Printf("  pattern[%d]=%q\n", i, pattern)
-		re, err := regexp.Compile(pattern)
-		if err != nil {
-			fmt.Printf("  INVALID REGEX: %v\n", err)
-			continue
-		}
+	for _, pattern := range patterns {
+		re := regexp.MustCompile(pattern)
 		if re.MatchString(text) {
 			return true
 		}

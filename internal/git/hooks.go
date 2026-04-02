@@ -88,6 +88,7 @@ func renderHookBlock() string {
 # Pre-commit hook for vigilanty
 
 if command -v vigilanty >/dev/null 2>&1; then
+		echo "Running vigilanty pre-commit checks. Might take a while..."
     vigilanty run
     exit $?
 elif [ -x "./bin/vigilanty" ]; then

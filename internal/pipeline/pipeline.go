@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Jelsin29/Vigilanty/internal/checker"
+
 	"github.com/Jelsin29/Vigilanty/internal/config"
 )
 
