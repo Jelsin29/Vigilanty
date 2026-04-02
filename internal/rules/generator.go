@@ -74,10 +74,27 @@ func Generate(opts GenerateOptions) string {
 }
 
 // Discover finds the rules file for the current project.
-// Checks: AGENTS.md in project root, then rules_file from config.
-// Stub — implementation in sub-feature branch.
+// Priority: explicit rules_file from config > AGENTS.md in project root.
 func Discover(root string, configRulesFile string) (string, bool) {
-	return "", false
+	if configRulesFile != "" {
+		path := configRulesFile
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(root, path)
+		}
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return "", false
+		}
+		return strings.TrimSpace(string(content)), true
+	}
+
+	// fall back to AGENTS.md in project root
+	agentsPath := filepath.Join(root, "AGENTS.md")
+	content, err := os.ReadFile(agentsPath)
+	if err != nil {
+		return "", false
+	}
+	return strings.TrimSpace(string(content)), true
 }
 
 // DetectTools scans the project root for known linter/formatter configs.
