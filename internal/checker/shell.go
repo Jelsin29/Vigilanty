@@ -23,9 +23,9 @@ type ShellChecker struct {
 }
 
 func newShellChecker(cfg map[string]interface{}) (Checker, error) {
-	command, err := stringConfigValue(cfg, "command")
-	if err != nil {
-		return nil, fmt.Errorf("shell checker command: %w", err)
+	command, ok := cfg["command"].(string)
+	if !ok || strings.TrimSpace(command) == "" {
+		return nil, fmt.Errorf("shell checker command is required and must be a string")
 	}
 
 	timeout, err := durationConfigValue(cfg, "timeout", defaultShellTimeout)
@@ -142,25 +142,6 @@ func shellArgs(command string) []string {
 	}
 
 	return []string{"-c", command}
-}
-
-func stringConfigValue(cfg map[string]interface{}, key string) (string, error) {
-	raw, ok := cfg[key]
-	if !ok {
-		return "", fmt.Errorf("%q is required", key)
-	}
-
-	value, ok := raw.(string)
-	if !ok {
-		return "", fmt.Errorf("%q must be a string", key)
-	}
-
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return "", fmt.Errorf("%q is required", key)
-	}
-
-	return value, nil
 }
 
 func durationConfigValue(cfg map[string]interface{}, key string, fallback time.Duration) (time.Duration, error) {

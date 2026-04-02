@@ -84,14 +84,23 @@ func IsHookInstalled() bool {
 }
 
 func renderHookBlock() string {
-	return vigilantyHookStart + "\n" +
-		"if command -v vigilanty >/dev/null 2>&1; then\n" +
-		"  vigilanty run\n" +
-		"else\n" +
-		"  printf '%s\\n' 'vigilanty: command not found' >&2\n" +
-		"  exit 1\n" +
-		"fi\n" +
-		vigilantyHookEnd + "\n"
+	const hookTemplate = `%s
+# Pre-commit hook for vigilanty
+
+if command -v vigilanty >/dev/null 2>&1; then
+		echo "Running vigilanty pre-commit checks. Might take a while..."
+    vigilanty run
+    exit $?
+elif [ -x "./bin/vigilanty" ]; then
+    ./bin/vigilanty run
+    exit $?
+else
+    echo "Error: vigilanty not found." >&2
+    exit 1
+fi
+%s
+`
+	return fmt.Sprintf(hookTemplate, vigilantyHookStart, vigilantyHookEnd)
 }
 
 func upsertHookSection(existing string, block string) string {

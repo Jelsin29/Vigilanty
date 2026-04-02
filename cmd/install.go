@@ -3,8 +3,10 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"os/exec"
+	"runtime"
 
-	gitpkg "github.com/jelsin/vigilanty/internal/git"
+	gitpkg "github.com/Jelsin29/Vigilanty/internal/git"
 	"github.com/spf13/cobra"
 )
 
@@ -22,8 +24,32 @@ func newInstallCommand() *cobra.Command {
 			}
 
 			fmt.Fprintf(os.Stdout, "%s\n", successText("Installed Vigilanty pre-commit hook"))
+
+			// check if golangci-lint executable is available, else go install it if go version is >= 1.18
+			if err := installLinter(); err != nil {
+				fmt.Fprintf(os.Stdout, "%s\n", errorText(fmt.Sprintf("warning: failed to install golangci-lint: %v", err)))
+			}
+
 			fmt.Fprintf(os.Stdout, "Next step: stage changes and run 'vigilanty run' to verify the pipeline.\n")
 			return nil
 		},
 	}
+}
+
+func installLinter() error {
+	if _, err := exec.LookPath("golangci-lint"); err == nil {
+		return nil // Already installed
+	}
+
+	// check if minor version >= 18
+	var minor int
+	_, _ = fmt.Sscanf(runtime.Version(), "go1.%d", &minor)
+
+	if minor >= 18 {
+		cmd := exec.Command("go", "install", "github.com/golangci/golangci-lint/cmd/golangci-lint@latest")
+		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+		return cmd.Run()
+	}
+
+	return fmt.Errorf("go version %s too old; 1.18+ required", runtime.Version())
 }
