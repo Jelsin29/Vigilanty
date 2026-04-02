@@ -58,6 +58,8 @@ func TestProviderSelectionAdvancesToPatternsWhenModelNotNeeded(t *testing.T) {
 	m := New("go")
 	m.step = StepProviderSelect
 	m.providers = []detect.ProviderInfo{{Name: "claude", Found: true}}
+	m.selectedProviders[0] = true
+	m.providerCursor = len(m.providers)
 
 	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = updated.(Model)
@@ -74,6 +76,64 @@ func TestProviderSelectionAdvancesToPatternsWhenModelNotNeeded(t *testing.T) {
 	}
 	if m.selectedProvider != 0 {
 		t.Fatalf("selectedProvider = %d, want 0", m.selectedProvider)
+	}
+}
+
+func TestWelcomeEnterOnQuitCancels(t *testing.T) {
+	m := New("go")
+	m.welcomeCursor = 1
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if !m.cancelled {
+		t.Fatal("enter on quit should cancel the wizard")
+	}
+	if cmd == nil {
+		t.Fatal("expected quit command")
+	}
+}
+
+func TestProviderSelectSpaceTogglesAndContinueOpensModelStep(t *testing.T) {
+	m := New("go")
+	m.step = StepProviderSelect
+	m.providers = []detect.ProviderInfo{{Name: "claude", Found: true}, {Name: "ollama", Found: true, NeedsModel: true, Models: []string{"llama3"}}}
+	m.providerSelectionsSet = true
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
+	m = updated.(Model)
+	if cmd != nil {
+		t.Fatal("space should not advance steps")
+	}
+	if !m.selectedProviders[0] {
+		t.Fatal("space should select the focused provider")
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = updated.(Model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
+	m = updated.(Model)
+	if !m.selectedProviders[1] {
+		t.Fatal("space should select the second provider")
+	}
+
+	m.providerCursor = len(m.providers)
+	updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if cmd == nil {
+		t.Fatal("continue should return a step command")
+	}
+	stepMsg, ok := cmd().(StepCompleteMsg)
+	if !ok {
+		t.Fatalf("command returned %T, want StepCompleteMsg", cmd())
+	}
+	if stepMsg.Next != StepModelSelect {
+		t.Fatalf("next step = %v, want %v", stepMsg.Next, StepModelSelect)
+	}
+	if m.selectedProvider != 0 {
+		t.Fatalf("selectedProvider = %d, want 0", m.selectedProvider)
+	}
+	if m.activeModelProvider != 1 {
+		t.Fatalf("activeModelProvider = %d, want 1", m.activeModelProvider)
 	}
 }
 

@@ -2,7 +2,7 @@ package tui
 
 func (m Model) viewPatterns() string {
 	body := []string{
-		"? File patterns to review:",
+		"File patterns to review",
 		"",
 		"  " + LabelStyle.Render("Include:") + " " + ValueStyle.Render(joinPatterns(m.includePatterns)),
 		"  Add more (comma-separated, enter to keep):",
