@@ -5,22 +5,32 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"unicode/utf8"
 
 	"github.com/jelsin29/vigilanty/internal/checker"
 	"github.com/jelsin29/vigilanty/internal/config"
 	gitpkg "github.com/jelsin29/vigilanty/internal/git"
 	"github.com/jelsin29/vigilanty/internal/pipeline"
+	"github.com/jelsin29/vigilanty/internal/ui"
 	"github.com/spf13/cobra"
 )
 
 func newRunCommand() *cobra.Command {
 	var noCache bool
+	var prMode bool
+	var baseBranch string
+	var ciMode bool
 
 	command := &cobra.Command{
 		Use:   "run",
 		Short: "Run the Vigilanty verification pipeline",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_ = noCache
+			if prMode && ciMode {
+				return newExitError(ExitConfigError, "%s", errorText("error: cannot use both --pr-mode and --ci"))
+			}
+			if baseBranch != "" && !prMode {
+				return newExitError(ExitConfigError, "%s", errorText("error: --base requires --pr-mode"))
+			}
 
 			if !gitpkg.IsRepo() {
 				return newExitError(ExitGitError, "%s", errorText("error: not a git repository. Run this command inside your repo."))
@@ -40,18 +50,24 @@ func newRunCommand() *cobra.Command {
 				cfg.Global.Verbose = true
 			}
 
-			stagedFiles, err := gitpkg.StagedFiles()
-			if err != nil {
-				return newExitError(ExitGitError, "%s", errorText(fmt.Sprintf("error: failed to list staged files: %v", err)))
+			if ciMode && !ui.StdoutIsTTY() {
+				ui.SetColorsEnabled(false)
+				defer ui.SetColorsEnabled(true)
 			}
 
-			diff, truncated, err := gitpkg.StagedDiffTruncated(cfg.Global.DiffMaxBytes)
+			if ciMode {
+				if ciName, detected := gitpkg.DetectCI(); detected {
+					fmt.Fprintf(os.Stdout, "Running in CI mode (%s detected)\n", ciName)
+				}
+			}
+
+			diff, changedFiles, truncated, err := resolveRunDiff(repoRoot, cfg.Global.DiffMaxBytes, prMode, baseBranch, ciMode)
 			if err != nil {
-				return newExitError(ExitGitError, "%s", errorText(fmt.Sprintf("error: failed to read staged diff: %v", err)))
+				return err
 			}
 
 			if truncated {
-				fmt.Fprintf(os.Stdout, "%s\n", warningText(fmt.Sprintf("warning: staged diff exceeded %d bytes and was truncated", cfg.Global.DiffMaxBytes)))
+				fmt.Fprintf(os.Stdout, "%s\n", warningText(fmt.Sprintf("warning: diff exceeded %d bytes and was truncated", cfg.Global.DiffMaxBytes)))
 			}
 
 			if len(cfg.Pipeline) == 0 {
@@ -62,12 +78,23 @@ func newRunCommand() *cobra.Command {
 			checkCtx := checker.CheckContext{
 				Root:        repoRoot,
 				Diff:        diff,
-				StagedFiles: stagedFiles,
+				StagedFiles: changedFiles,
 			}
 
-			pipe := pipeline.New(cfg)
+			runMode := "staged"
+			if prMode {
+				runMode = "pr"
+			} else if ciMode {
+				runMode = "ci"
+			}
+
+			pipe := pipeline.New(cfg, pipeline.Options{NoCache: noCache, Mode: runMode})
 			result := pipe.Run(checkCtx)
-			fmt.Fprintf(os.Stdout, "%s\n", pipeline.FormatOutput(result, cfg.Global.Verbose))
+			if result.LiveOutputted {
+				fmt.Fprintf(os.Stdout, "%s\n", pipeline.FormatSummary(result))
+			} else {
+				fmt.Fprintf(os.Stdout, "%s\n", pipeline.FormatOutput(result, cfg.Global.Verbose))
+			}
 
 			if !result.Passed {
 				return newExitError(ExitCheckerFailure, "")
@@ -77,8 +104,58 @@ func newRunCommand() *cobra.Command {
 		},
 	}
 
-	command.Flags().BoolVar(&noCache, "no-cache", false, "Accepted for compatibility; ignored in v0.1")
+	command.Flags().BoolVar(&noCache, "no-cache", false, "Bypass checker cache for this run")
+	command.Flags().BoolVar(&prMode, "pr-mode", false, "Review full PR diff against base branch")
+	command.Flags().StringVar(&baseBranch, "base", "", "Base branch for PR mode (default: auto-detect main/master)")
+	command.Flags().BoolVar(&ciMode, "ci", false, "Review last commit changes (CI/CD mode)")
 	return command
+}
+
+func resolveRunDiff(repoRoot string, maxBytes int, prMode bool, baseBranch string, ciMode bool) (string, []string, bool, error) {
+	if prMode {
+		diff, files, err := gitpkg.PRDiffWithFiles(repoRoot, baseBranch)
+		if err != nil {
+			return "", nil, false, newExitError(ExitGitError, "%s", errorText(fmt.Sprintf("error: failed to read PR diff: %v", err)))
+		}
+
+		truncatedDiff, truncated := truncateDiff(diff, maxBytes)
+		return truncatedDiff, files, truncated, nil
+	}
+
+	if ciMode {
+		diff, files, err := gitpkg.LastCommitDiffWithFiles(repoRoot)
+		if err != nil {
+			return "", nil, false, newExitError(ExitGitError, "%s", errorText(fmt.Sprintf("error: failed to read last commit diff: %v", err)))
+		}
+
+		truncatedDiff, truncated := truncateDiff(diff, maxBytes)
+		return truncatedDiff, files, truncated, nil
+	}
+
+	stagedFiles, err := gitpkg.StagedFiles(repoRoot)
+	if err != nil {
+		return "", nil, false, newExitError(ExitGitError, "%s", errorText(fmt.Sprintf("error: failed to list staged files: %v", err)))
+	}
+
+	diff, truncated, err := gitpkg.StagedDiffTruncated(repoRoot, maxBytes)
+	if err != nil {
+		return "", nil, false, newExitError(ExitGitError, "%s", errorText(fmt.Sprintf("error: failed to read staged diff: %v", err)))
+	}
+
+	return diff, stagedFiles, truncated, nil
+}
+
+func truncateDiff(diff string, maxBytes int) (string, bool) {
+	if maxBytes <= 0 || len(diff) <= maxBytes {
+		return diff, false
+	}
+
+	truncated := diff[:maxBytes]
+	for !utf8.ValidString(truncated) && len(truncated) > 0 {
+		truncated = truncated[:len(truncated)-1]
+	}
+
+	return truncated + "\n... diff truncated ...\n", true
 }
 
 func loadRunConfig() (*config.Config, error) {

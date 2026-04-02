@@ -9,7 +9,7 @@ import (
 
 func TestIsRepo(t *testing.T) {
 	repoDir := t.TempDir()
-	runGit(t, repoDir, "init")
+	runGitCommand(t, repoDir, "init")
 
 	withWorkingDir(t, repoDir, func() {
 		if !IsRepo() {
@@ -51,7 +51,7 @@ func withWorkingDir(t *testing.T, dir string, fn func()) {
 	fn()
 }
 
-func runGit(t *testing.T, dir string, args ...string) {
+func runGitCommand(t *testing.T, dir string, args ...string) {
 	t.Helper()
 
 	cmd := exec.Command("git", args...)

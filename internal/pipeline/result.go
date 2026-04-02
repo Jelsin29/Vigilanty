@@ -7,12 +7,14 @@ import (
 )
 
 type PipelineResult struct {
-	Results  []StepResult  `json:"results" yaml:"results"`
-	Duration time.Duration `json:"duration" yaml:"duration"`
-	Passed   bool          `json:"passed" yaml:"passed"`
+	Results       []StepResult  `json:"results" yaml:"results"`
+	Duration      time.Duration `json:"duration" yaml:"duration"`
+	Passed        bool          `json:"passed" yaml:"passed"`
+	LiveOutputted bool          `json:"live_outputted,omitempty" yaml:"live_outputted,omitempty"`
 }
 
 type StepResult struct {
 	Name   string              `json:"name" yaml:"name"`
 	Result checker.CheckResult `json:"result" yaml:"result"`
+	Cached bool                `json:"cached,omitempty" yaml:"cached,omitempty"`
 }

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -43,7 +44,7 @@ func newInitCommand() *cobra.Command {
 						return nil
 					}
 				}
-			} else if !os.IsNotExist(err) {
+			} else if !errors.Is(err, os.ErrNotExist) {
 				return newExitError(1, "%s", errorText(fmt.Sprintf("error: cannot inspect %s: %v", configPath, err)))
 			}
 

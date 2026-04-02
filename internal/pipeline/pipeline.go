@@ -2,29 +2,30 @@ package pipeline
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
+	cachepkg "github.com/jelsin29/vigilanty/internal/cache"
 	"github.com/jelsin29/vigilanty/internal/checker"
-
 	"github.com/jelsin29/vigilanty/internal/config"
-)
-
-const (
-	ansiReset  = "\033[0m"
-	ansiRed    = "\033[31m"
-	ansiGreen  = "\033[32m"
-	ansiYellow = "\033[33m"
-	ansiBlue   = "\033[34m"
+	"github.com/jelsin29/vigilanty/internal/ui"
 )
 
 type Pipeline struct {
 	steps    []config.StepConfig
 	failFast bool
 	verbose  bool
+	noCache  bool
+	mode     string
 }
 
-func New(cfg *config.Config) *Pipeline {
+type Options struct {
+	NoCache bool
+	Mode    string
+}
+
+func New(cfg *config.Config, options Options) *Pipeline {
 	if cfg == nil {
 		return &Pipeline{}
 	}
@@ -36,6 +37,8 @@ func New(cfg *config.Config) *Pipeline {
 		steps:    steps,
 		failFast: cfg.Global.FailFast,
 		verbose:  cfg.Global.Verbose,
+		noCache:  options.NoCache,
+		mode:     options.Mode,
 	}
 }
 
@@ -45,22 +48,51 @@ func (p *Pipeline) Run(ctx checker.CheckContext) PipelineResult {
 		Results: make([]StepResult, 0, len(p.steps)),
 		Passed:  true,
 	}
+	liveOutputEnabled := !ui.StdoutIsTTY()
+
+	projectCache, cacheEnabled, filesHash := p.loadCache(ctx)
 
 	for i, step := range p.steps {
 		if step.Enabled != nil && !*step.Enabled {
-			result.Results = append(result.Results, StepResult{
+			stepResult := StepResult{
 				Name: step.Name,
 				Result: checker.CheckResult{
 					Status: checker.Skipped,
 					Output: "step disabled",
 				},
-			})
+			}
+			result.Results = append(result.Results, stepResult)
+			printLiveStepResult(stepResult)
+			result.LiveOutputted = result.LiveOutputted || liveOutputEnabled
 			continue
 		}
 
 		stepStartedAt := time.Now()
-		instance, err := checker.Create(step.Type, checkerConfig(step))
+		cfg := checkerConfig(step)
+		configHash := cachepkg.ConfigHash(cfg)
+
+		if cacheEnabled {
+			if _, ok := projectCache.Lookup(step.Name, filesHash, configHash); ok {
+				stepResult := StepResult{
+					Name:   step.Name,
+					Cached: true,
+					Result: checker.CheckResult{Status: checker.Passed},
+				}
+				result.Results = append(result.Results, stepResult)
+				printLiveStepResult(stepResult)
+				result.LiveOutputted = result.LiveOutputted || liveOutputEnabled
+				continue
+			}
+		}
+
+		spinner := ui.NewSpinner(step.Name)
+		spinner.Start()
+		instance, err := checker.Create(step.Type, cfg)
 		if err != nil {
+			if cacheEnabled {
+				_ = projectCache.Remove(step.Name)
+			}
+
 			stepResult := StepResult{
 				Name: step.Name,
 				Result: checker.CheckResult{
@@ -69,18 +101,12 @@ func (p *Pipeline) Run(ctx checker.CheckContext) PipelineResult {
 					Duration: time.Since(stepStartedAt),
 				},
 			}
+			spinner.Stop(statusIcon(stepResult.Result.Status))
+			result.LiveOutputted = result.LiveOutputted || liveOutputEnabled
 			result.Results = append(result.Results, stepResult)
 			result.Passed = false
 			if p.failFast {
-				for j := i + 1; j < len(p.steps); j++ {
-					result.Results = append(result.Results, StepResult{
-						Name: p.steps[j].Name,
-						Result: checker.CheckResult{
-							Status: checker.Skipped,
-							Output: "skipped (previous checker failed)",
-						},
-					})
-				}
+				appendSkippedResults(&result, p.steps, i+1, liveOutputEnabled)
 				break
 			}
 			continue
@@ -90,6 +116,17 @@ func (p *Pipeline) Run(ctx checker.CheckContext) PipelineResult {
 		if checkResult.Duration <= 0 {
 			checkResult.Duration = time.Since(stepStartedAt)
 		}
+		spinner.Stop(statusIcon(checkResult.Status))
+		result.LiveOutputted = result.LiveOutputted || liveOutputEnabled
+
+		if cacheEnabled {
+			switch checkResult.Status {
+			case checker.Passed:
+				_ = projectCache.Store(step.Name, filesHash, configHash)
+			case checker.Failed, checker.Error:
+				_ = projectCache.Remove(step.Name)
+			}
+		}
 
 		stepResult := StepResult{Name: step.Name, Result: checkResult}
 		result.Results = append(result.Results, stepResult)
@@ -97,15 +134,7 @@ func (p *Pipeline) Run(ctx checker.CheckContext) PipelineResult {
 		if checkResult.Status == checker.Failed || checkResult.Status == checker.Error {
 			result.Passed = false
 			if p.failFast {
-				for j := i + 1; j < len(p.steps); j++ {
-					result.Results = append(result.Results, StepResult{
-						Name: p.steps[j].Name,
-						Result: checker.CheckResult{
-							Status: checker.Skipped,
-							Output: "skipped (previous checker failed)",
-						},
-					})
-				}
+				appendSkippedResults(&result, p.steps, i+1, liveOutputEnabled)
 				break
 			}
 		}
@@ -117,6 +146,17 @@ func (p *Pipeline) Run(ctx checker.CheckContext) PipelineResult {
 
 func FormatOutput(result PipelineResult, verbose bool) string {
 	var builder strings.Builder
+	writeOutput(&builder, result, verbose, false)
+	return builder.String()
+}
+
+func FormatSummary(result PipelineResult) string {
+	var builder strings.Builder
+	writeOutput(&builder, result, false, true)
+	return builder.String()
+}
+
+func writeOutput(builder *strings.Builder, result PipelineResult, verbose bool, summaryOnly bool) {
 	passedCount := 0
 	failedAt := ""
 
@@ -128,13 +168,16 @@ func FormatOutput(result PipelineResult, verbose bool) string {
 			failedAt = step.Name
 		}
 
-		builder.WriteString(statusColor(step.Result.Status))
-		builder.WriteString(statusIcon(step.Result.Status))
-		builder.WriteString(" ")
-		builder.WriteString(step.Name)
-		builder.WriteString(ansiReset)
+		if summaryOnly {
+			if (step.Result.Status == checker.Failed || step.Result.Status == checker.Error) && strings.TrimSpace(step.Result.Output) != "" {
+				builder.WriteString("  " + strings.TrimSpace(step.Result.Output) + "\n")
+			}
+			continue
+		}
+
+		builder.WriteString(ui.Colorize(statusColor(step.Result.Status), statusIcon(step.Result.Status)+" "+step.Name))
 		builder.WriteString(" (")
-		builder.WriteString(step.Result.Duration.String())
+		builder.WriteString(stepSummary(step))
 		builder.WriteString(")")
 		builder.WriteString("\n")
 
@@ -146,15 +189,10 @@ func FormatOutput(result PipelineResult, verbose bool) string {
 
 	builder.WriteString("\n")
 	if result.Passed {
-		builder.WriteString(ansiGreen)
-		builder.WriteString(fmt.Sprintf("✓ Pipeline passed (%d/%d checkers) in %s", passedCount, len(result.Results), result.Duration))
+		builder.WriteString(ui.SuccessText(fmt.Sprintf("✓ Pipeline passed (%d/%d checkers) in %s", passedCount, len(result.Results), result.Duration)))
 	} else {
-		builder.WriteString(ansiRed)
-		builder.WriteString(fmt.Sprintf("✗ Pipeline failed at %q (%d/%d checkers passed) in %s", failedAt, passedCount, len(result.Results), result.Duration))
+		builder.WriteString(ui.ErrorText(fmt.Sprintf("✗ Pipeline failed at %q (%d/%d checkers passed) in %s", failedAt, passedCount, len(result.Results), result.Duration)))
 	}
-	builder.WriteString(ansiReset)
-
-	return builder.String()
 }
 
 func shouldPrintOutput(status checker.Status, verbose bool) bool {
@@ -213,13 +251,13 @@ func checkerConfig(step config.StepConfig) map[string]interface{} {
 func statusColor(status checker.Status) string {
 	switch status {
 	case checker.Passed:
-		return ansiGreen
+		return ui.Green
 	case checker.Failed, checker.Error:
-		return ansiRed
+		return ui.Red
 	case checker.Skipped:
-		return ansiYellow
+		return ui.Yellow
 	default:
-		return ansiBlue
+		return ui.Blue
 	}
 }
 
@@ -238,10 +276,67 @@ func statusIcon(status checker.Status) string {
 	}
 }
 
+func stepSummary(step StepResult) string {
+	if step.Cached {
+		return "cached"
+	}
+
+	if step.Result.Status == checker.Skipped {
+		trimmed := strings.TrimSpace(step.Result.Output)
+		if strings.HasPrefix(trimmed, "skipped (") && strings.HasSuffix(trimmed, ")") {
+			return "skipped — " + strings.TrimSuffix(strings.TrimPrefix(trimmed, "skipped ("), ")")
+		}
+		if trimmed != "" {
+			return trimmed
+		}
+	}
+
+	return step.Result.Duration.String()
+}
+
 func indent(value string, prefix string) string {
 	lines := strings.Split(value, "\n")
 	for i := range lines {
 		lines[i] = prefix + lines[i]
 	}
 	return strings.Join(lines, "\n")
+}
+
+func appendSkippedResults(result *PipelineResult, steps []config.StepConfig, start int, liveOutputEnabled bool) {
+	for i := start; i < len(steps); i++ {
+		stepResult := StepResult{
+			Name: steps[i].Name,
+			Result: checker.CheckResult{
+				Status: checker.Skipped,
+				Output: "skipped — previous step failed",
+			},
+		}
+		result.Results = append(result.Results, stepResult)
+		printLiveStepResult(stepResult)
+		if liveOutputEnabled {
+			result.LiveOutputted = true
+		}
+	}
+}
+
+func printLiveStepResult(step StepResult) {
+	if ui.StdoutIsTTY() {
+		return
+	}
+
+	fmt.Fprintf(os.Stdout, "%s %s (%s)\n", statusIcon(step.Result.Status), step.Name, stepSummary(step))
+}
+
+func (p *Pipeline) loadCache(ctx checker.CheckContext) (*cachepkg.Cache, bool, string) {
+	if p.noCache || strings.TrimSpace(ctx.Root) == "" {
+		return nil, false, ""
+	}
+
+	projectCache := cachepkg.New(ctx.Root)
+	if err := projectCache.Load(); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: cache unavailable: %v\n", err)
+		return nil, false, ""
+	}
+
+	return projectCache, true, cachepkg.FilesHash(ctx.Root, ctx.StagedFiles, p.mode)
 }

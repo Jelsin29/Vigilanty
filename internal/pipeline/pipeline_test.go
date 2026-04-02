@@ -22,7 +22,7 @@ func TestPipelineAllPassingCheckers(t *testing.T) {
 			{Name: "first", Type: checkerTypeA},
 			{Name: "second", Type: checkerTypeB},
 		},
-	})
+	}, Options{})
 
 	result := pipe.Run(checker.CheckContext{})
 	if !result.Passed {
@@ -43,7 +43,7 @@ func TestPipelineFailFastStopsAfterFailure(t *testing.T) {
 			{Name: "first", Type: checkerTypeFail},
 			{Name: "second", Type: checkerTypeNever},
 		},
-	})
+	}, Options{})
 
 	result := pipe.Run(checker.CheckContext{})
 	if result.Passed {
@@ -64,7 +64,7 @@ func TestPipelineFailFastStopsAfterFailure(t *testing.T) {
 }
 
 func TestPipelineEmptyPasses(t *testing.T) {
-	result := New(&config.Config{}).Run(checker.CheckContext{})
+	result := New(&config.Config{}, Options{}).Run(checker.CheckContext{})
 	if !result.Passed {
 		t.Fatal("Run().Passed = false, want true")
 	}
@@ -83,7 +83,7 @@ func TestPipelineErrorStopsExecution(t *testing.T) {
 			{Name: "first", Type: checkerTypeError},
 			{Name: "second", Type: checkerTypeNever},
 		},
-	})
+	}, Options{})
 
 	result := pipe.Run(checker.CheckContext{})
 	if result.Passed {
@@ -125,6 +125,27 @@ func TestFormatOutputIncludesSummaryCounts(t *testing.T) {
 	}
 	if !strings.Contains(output, "○ ai-review") {
 		t.Fatalf("FormatOutput() = %q, want skipped icon", output)
+	}
+}
+
+func TestFormatSummaryOmitsPassedStepResultsButIncludesFailureOutput(t *testing.T) {
+	output := FormatSummary(PipelineResult{
+		Passed:   false,
+		Duration: time.Second,
+		Results: []StepResult{
+			{Name: "lint", Result: checker.CheckResult{Status: checker.Passed, Duration: time.Millisecond}},
+			{Name: "test", Result: checker.CheckResult{Status: checker.Failed, Duration: time.Millisecond, Output: "boom"}},
+		},
+	})
+
+	if !strings.Contains(output, `✗ Pipeline failed at "test" (1/2 checkers passed) in 1s`) {
+		t.Fatalf("FormatSummary() = %q, want failure summary", output)
+	}
+	if strings.Contains(output, "✓ lint") || strings.Contains(output, "✗ test") {
+		t.Fatalf("FormatSummary() = %q, want summary without per-step status lines", output)
+	}
+	if !strings.Contains(output, "  boom\n") {
+		t.Fatalf("FormatSummary() = %q, want failed step output", output)
 	}
 }
 
