@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestBannerWideReturnsASCIIArt(t *testing.T) {
+func TestBannerWideReturnsBrailleArt(t *testing.T) {
 	banner := Banner(80)
 
 	if banner == "[ VIGILANTY ]" {
@@ -14,14 +14,15 @@ func TestBannerWideReturnsASCIIArt(t *testing.T) {
 	if banner == "" {
 		t.Fatal("Banner(80) returned empty string")
 	}
-	if !strings.Contains(banner, "%@%") {
-		t.Fatalf("Banner(80) = %q, want ASCII art marker", banner)
+	// braille eye has these distinctive characters
+	if !strings.Contains(banner, "⣿") {
+		t.Fatal("Banner(80) missing braille art content")
 	}
 }
 
 func TestBannerNarrowReturnsFallback(t *testing.T) {
-	if got := Banner(50); got != "[ VIGILANTY ]" {
-		t.Fatalf("Banner(50) = %q, want %q", got, "[ VIGILANTY ]")
+	if got := Banner(30); got != "[ VIGILANTY ]" {
+		t.Fatalf("Banner(30) = %q, want %q", got, "[ VIGILANTY ]")
 	}
 }
 
