@@ -134,7 +134,8 @@ func (c *AIReviewChecker) Check(ctx CheckContext) CheckResult {
 	execCtx, cancel := context.WithTimeout(context.Background(), c.timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(execCtx, c.provider, c.providerArgs(prompt)...)
+	cmd := exec.CommandContext(execCtx, c.provider, c.providerArgs()...)
+	cmd.Stdin = strings.NewReader(prompt)
 	if strings.TrimSpace(ctx.Root) != "" {
 		cmd.Dir = ctx.Root
 	}
@@ -239,20 +240,22 @@ func (c *AIReviewChecker) buildPrompt(ctx CheckContext) (string, error) {
 	return builder.String(), nil
 }
 
-func (c *AIReviewChecker) providerArgs(prompt string) []string {
+// providerArgs returns CLI flags for the provider. The prompt itself
+// gets piped through stdin to avoid hitting ARG_MAX on large diffs.
+func (c *AIReviewChecker) providerArgs() []string {
 	switch c.provider {
 	case "claude":
-		args := []string{"-p", prompt}
+		args := []string{"-p", "-"}
 		if claudeSupportsOutputFormat() {
 			args = append(args, "--output-format", "text")
 		}
 		return args
 	case "gemini":
-		return []string{"-p", prompt}
+		return []string{"-p", "-"}
 	case "ollama":
-		return []string{"run", c.model, prompt}
+		return []string{"run", c.model}
 	default:
-		return []string{"-p", prompt}
+		return []string{"-p", "-"}
 	}
 }
 
@@ -280,13 +283,16 @@ func matchesAny(patterns []string, text string) bool {
 	return false
 }
 
+// stripANSI removes ANSI escape sequences from CLI output.
+// We only strip escapes here — markdown bold/italic removal was eating
+// legit characters like Go pointers (*T) and underscored identifiers.
+var ansiRe = regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]|\x1b\].*?\x1b\\|\x1b[^[\]]`)
+
 func stripMarkdown(s string) string {
-	ansi := regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]|\x1b[^[]`) // THIS CAUSES A TON OF ISSUES AND IMPOSSIBLE TO DEBUG
-	s = ansi.ReplaceAllString(s, "")
+	s = ansiRe.ReplaceAllString(s, "")
+	// only strip paired markdown emphasis, not bare chars
 	s = strings.ReplaceAll(s, "**", "")
 	s = strings.ReplaceAll(s, "__", "")
-	s = strings.ReplaceAll(s, "*", "")
-	s = strings.ReplaceAll(s, "_", "")
 	s = strings.ReplaceAll(s, "\u00a0", " ")
 	s = strings.ReplaceAll(s, "\r\n", "\n")
 	s = strings.ReplaceAll(s, "\r", "\n")
