@@ -356,7 +356,7 @@ var toolLineRe = regexp.MustCompile(
 		`> \S+ · ` + // opencode model header: "> build · gpt-5.4"
 		`|✱ ` + // opencode grep: "✱ Grep ..."
 		`|→ ` + // opencode read: "→ Read ..."
-		`|⚙ ` + // opencode tool call: "⚙ engram_mem_search ..."
+		`|⚙ ` + // opencode tool call: "⚙ tool_name {...}"
 		`|% ` + // opencode web fetch: "% WebFetch ..."
 		`|\$ ` + // shell command echo: "$ opencode run ..."
 		`|[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] ` + // spinner frames
