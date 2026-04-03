@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="Vigilanty.png" alt="Vigilanty — Your commits, verified" width="100%" />
+  <img width="1773" height="886" alt="Image" src="https://github.com/user-attachments/assets/df88e02c-930d-4123-bfa0-fb757ebac293" />
 </p>
 
 <p align="center">
