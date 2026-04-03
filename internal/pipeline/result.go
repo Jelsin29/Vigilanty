@@ -14,7 +14,12 @@ type PipelineResult struct {
 }
 
 type StepResult struct {
-	Name   string              `json:"name" yaml:"name"`
-	Result checker.CheckResult `json:"result" yaml:"result"`
-	Cached bool                `json:"cached,omitempty" yaml:"cached,omitempty"`
+	Name     string              `json:"name" yaml:"name"`
+	Type     string              `json:"type,omitempty" yaml:"type,omitempty"`
+	Provider string              `json:"provider,omitempty" yaml:"provider,omitempty"`
+	Model    string              `json:"model,omitempty" yaml:"model,omitempty"`
+	Timeout  string              `json:"timeout,omitempty" yaml:"timeout,omitempty"`
+	Files    []string            `json:"files,omitempty" yaml:"files,omitempty"`
+	Result   checker.CheckResult `json:"result" yaml:"result"`
+	Cached   bool                `json:"cached,omitempty" yaml:"cached,omitempty"`
 }

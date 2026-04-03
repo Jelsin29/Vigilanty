@@ -150,8 +150,11 @@ func (c *AIReviewChecker) Check(ctx CheckContext) CheckResult {
 	execCtx, cancel := context.WithTimeout(context.Background(), c.timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(execCtx, c.provider, c.providerArgs()...)
-	cmd.Stdin = strings.NewReader(prompt)
+	args, usesStdin := c.providerArgs(prompt)
+	cmd := exec.CommandContext(execCtx, c.provider, args...)
+	if usesStdin {
+		cmd.Stdin = strings.NewReader(prompt)
+	}
 	if strings.TrimSpace(ctx.Root) != "" {
 		cmd.Dir = ctx.Root
 	}
@@ -224,54 +227,95 @@ func (c *AIReviewChecker) buildPrompt(ctx CheckContext) (string, error) {
 		truncatedDiff = "(empty diff)"
 	}
 
-	if hasRules {
-		var builder strings.Builder
-		builder.WriteString("## Code Review Rules\n")
-		builder.WriteString(strings.TrimSpace(rulesContent))
-		builder.WriteString("\n\n## Task\n")
-		builder.WriteString(strings.TrimSpace(c.prompt))
-		builder.WriteString("\n\n## Diff to Review\n")
-		builder.WriteString(truncatedDiff)
-		if !strings.HasSuffix(truncatedDiff, "\n") {
-			builder.WriteString("\n")
-		}
-		return builder.String(), nil
-	}
-
 	var builder strings.Builder
-	builder.WriteString("Review the staged changes and return a final verdict using STATUS: PASSED or STATUS: FAILED.\n")
+
+	builder.WriteString("You are a code reviewer. Analyze the diff below and validate it complies with the coding standards provided.\n\n")
+
+	if hasRules {
+		builder.WriteString("=== CODING STANDARDS ===\n")
+		builder.WriteString(strings.TrimSpace(rulesContent))
+		builder.WriteString("\n=== END CODING STANDARDS ===\n\n")
+	}
 
 	if strings.TrimSpace(c.prompt) != "" {
-		builder.WriteString("\nAdditional Instructions:\n")
+		builder.WriteString("=== ADDITIONAL INSTRUCTIONS ===\n")
 		builder.WriteString(strings.TrimSpace(c.prompt))
-		builder.WriteString("\n")
+		builder.WriteString("\n=== END ADDITIONAL INSTRUCTIONS ===\n\n")
 	}
 
-	builder.WriteString("\nGit Diff:\n")
+	builder.WriteString("=== DIFF TO REVIEW ===\n")
 	builder.WriteString(truncatedDiff)
 	if !strings.HasSuffix(truncatedDiff, "\n") {
 		builder.WriteString("\n")
 	}
+	builder.WriteString("=== END DIFF ===\n\n")
+
+	builder.WriteString(`IMPORTANT: Your FIRST LINE must be exactly one of:
+STATUS: PASSED
+STATUS: FAILED
+
+RESPONSE FORMAT:
+
+If PASSED:
+STATUS: PASSED
+
+All changes comply with the coding standards.
+
+If FAILED, use this exact structure:
+STATUS: FAILED
+
+Violations found:
+
+1. **file.go:42** - Category (e.g. Bug, Security, Style, Performance)
+   - Issue: Clear description of what is wrong
+   - Fix: Concrete suggestion to fix it
+
+2. **file.go:88** - Category
+   - Issue: Description
+   - Fix: Suggestion
+
+RULES:
+- Only report REAL violations of the coding standards provided above
+- Do NOT report stylistic preferences unless they violate an explicit rule
+- Do NOT use tools, read files, or browse — review ONLY the diff provided
+- Be concise — one line per Issue, one line per Fix
+- Group violations by severity: bugs and security first, then style
+- If everything is clean, say PASSED — do not invent issues
+
+Begin your response now:
+`)
 
 	return builder.String(), nil
 }
 
-// providerArgs returns CLI flags for the provider. The prompt itself
-// gets piped through stdin to avoid hitting ARG_MAX on large diffs.
-func (c *AIReviewChecker) providerArgs() []string {
+// providerArgs returns CLI flags and whether the prompt is piped via stdin.
+// When usesStdin is true the caller must feed the prompt through cmd.Stdin.
+// When false the prompt is already embedded in args as a positional argument.
+func (c *AIReviewChecker) providerArgs(prompt string) (args []string, usesStdin bool) {
 	switch c.provider {
 	case "claude":
-		args := []string{"-p", "-"}
+		args = []string{"-p", "-"}
 		if claudeSupportsOutputFormat() {
 			args = append(args, "--output-format", "text")
 		}
-		return args
+		return args, true
 	case "gemini":
-		return []string{"-p", "-"}
+		return []string{"-p", "-"}, true
 	case "ollama":
-		return []string{"run", c.model}
+		return []string{"run", c.model}, true
+	case "opencode":
+		// opencode run takes the prompt as a positional arg.
+		// Stdin is not consumed by opencode run.
+		args = []string{"run"}
+		if c.model != "" {
+			args = append(args, "--model", c.model)
+		}
+		args = append(args, prompt)
+		return args, false
+	case "codex":
+		return []string{"exec", prompt}, false
 	default:
-		return []string{"-p", "-"}
+		return []string{"-p", "-"}, true
 	}
 }
 
@@ -303,15 +347,54 @@ func matchesAny(patterns []*regexp.Regexp, text string) bool {
 // legit characters like Go pointers (*T) and underscored identifiers.
 var ansiRe = regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]|\x1b\].*?\x1b\\|\x1b[^[\]]`)
 
+// toolLineRe matches opencode/AI tool-call trace lines that pollute review output.
+// Uses specific patterns to avoid stripping valid markdown blockquotes ("> ").
+// Matches: "> build · model", "✱ Grep ...", "→ Read ...", "⚙ func_name ...",
+// "% WebFetch ...", "$ command ...", spinner frames "⠋ ..."
+var toolLineRe = regexp.MustCompile(
+	`^(?:` +
+		`> \S+ · ` + // opencode model header: "> build · gpt-5.4"
+		`|✱ ` + // opencode grep: "✱ Grep ..."
+		`|→ ` + // opencode read: "→ Read ..."
+		`|⚙ ` + // opencode tool call: "⚙ tool_name {...}"
+		`|% ` + // opencode web fetch: "% WebFetch ..."
+		`|\$ ` + // shell command echo: "$ opencode run ..."
+		`|[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] ` + // spinner frames
+		`)`,
+)
+
 func stripMarkdown(s string) string {
 	s = ansiRe.ReplaceAllString(s, "")
-	// only strip paired markdown emphasis, not bare chars
-	s = strings.ReplaceAll(s, "**", "")
-	s = strings.ReplaceAll(s, "__", "")
 	s = strings.ReplaceAll(s, "\u00a0", " ")
 	s = strings.ReplaceAll(s, "\r\n", "\n")
 	s = strings.ReplaceAll(s, "\r", "\n")
-	return s
+
+	// Filter out AI tool-call trace lines (opencode, etc.)
+	lines := strings.Split(s, "\n")
+	cleaned := make([]string, 0, len(lines))
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			cleaned = append(cleaned, line)
+			continue
+		}
+		if toolLineRe.MatchString(trimmed) {
+			continue
+		}
+		cleaned = append(cleaned, line)
+	}
+	s = strings.Join(cleaned, "\n")
+
+	// Strip paired markdown emphasis, not bare chars
+	s = strings.ReplaceAll(s, "**", "")
+	s = strings.ReplaceAll(s, "__", "")
+
+	// Collapse 3+ consecutive blank lines into 2
+	for strings.Contains(s, "\n\n\n") {
+		s = strings.ReplaceAll(s, "\n\n\n", "\n\n")
+	}
+
+	return strings.TrimSpace(s)
 }
 
 func listStringConfigValue(cfg map[string]interface{}, key string, fallback []string) []string {

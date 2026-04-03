@@ -3,6 +3,7 @@ package wizard
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -176,6 +177,23 @@ func TestRunReturnsDefaultsForNonTTYInput(t *testing.T) {
 	}
 	if !result.GenerateRules {
 		t.Fatal("Run().GenerateRules = false, want true")
+	}
+}
+
+func TestErrCancelledIsSentinel(t *testing.T) {
+	wrapped := errors.Join(ErrCancelled, errors.New("wrapped"))
+	if !errors.Is(wrapped, ErrCancelled) {
+		t.Fatal("errors.Is should match ErrCancelled")
+	}
+}
+
+func TestDefaultResultIsAccessible(t *testing.T) {
+	result := DefaultResult("go")
+	if result == nil {
+		t.Fatal("DefaultResult() returned nil")
+	}
+	if result.ProjectType != "go" {
+		t.Fatalf("DefaultResult().ProjectType = %q, want %q", result.ProjectType, "go")
 	}
 }
 

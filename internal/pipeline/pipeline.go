@@ -48,14 +48,19 @@ func (p *Pipeline) Run(ctx checker.CheckContext) PipelineResult {
 		Results: make([]StepResult, 0, len(p.steps)),
 		Passed:  true,
 	}
-	liveOutputEnabled := !ui.StdoutIsTTY()
+	liveOutputEnabled := true // spinners and AI review sections output live in all modes
 
 	projectCache, cacheEnabled, filesHash := p.loadCache(ctx)
 
 	for i, step := range p.steps {
 		if step.Enabled != nil && !*step.Enabled {
 			stepResult := StepResult{
-				Name: step.Name,
+				Name:     step.Name,
+				Type:     step.Type,
+				Provider: step.Provider,
+				Model:    step.Model,
+				Timeout:  step.Timeout,
+				Files:    append([]string(nil), ctx.StagedFiles...),
 				Result: checker.CheckResult{
 					Status: checker.Skipped,
 					Output: "step disabled",
@@ -74,9 +79,14 @@ func (p *Pipeline) Run(ctx checker.CheckContext) PipelineResult {
 		if cacheEnabled {
 			if _, ok := projectCache.Lookup(step.Name, filesHash, configHash); ok {
 				stepResult := StepResult{
-					Name:   step.Name,
-					Cached: true,
-					Result: checker.CheckResult{Status: checker.Passed},
+					Name:     step.Name,
+					Type:     step.Type,
+					Provider: step.Provider,
+					Model:    step.Model,
+					Timeout:  step.Timeout,
+					Files:    append([]string(nil), ctx.StagedFiles...),
+					Cached:   true,
+					Result:   checker.CheckResult{Status: checker.Passed},
 				}
 				result.Results = append(result.Results, stepResult)
 				printLiveStepResult(stepResult)
@@ -85,8 +95,18 @@ func (p *Pipeline) Run(ctx checker.CheckContext) PipelineResult {
 			}
 		}
 
-		spinner := ui.NewSpinner(step.Name)
-		spinner.Start()
+		ttyAIReview := ui.StdoutIsTTY() && isAIReview(step)
+
+		if ttyAIReview {
+			printAIReviewStart(step, ctx.StagedFiles)
+		}
+
+		var spinner *ui.Spinner
+		if !ttyAIReview {
+			spinner = ui.NewSpinner(step.Name)
+			spinner.Start()
+		}
+
 		instance, err := checker.Create(step.Type, cfg)
 		if err != nil {
 			if cacheEnabled {
@@ -94,14 +114,21 @@ func (p *Pipeline) Run(ctx checker.CheckContext) PipelineResult {
 			}
 
 			stepResult := StepResult{
-				Name: step.Name,
+				Name:     step.Name,
+				Type:     step.Type,
+				Provider: step.Provider,
+				Model:    step.Model,
+				Timeout:  step.Timeout,
+				Files:    append([]string(nil), ctx.StagedFiles...),
 				Result: checker.CheckResult{
 					Status:   checker.Error,
 					Output:   fmt.Sprintf("create checker: %v", err),
 					Duration: time.Since(stepStartedAt),
 				},
 			}
-			spinner.Stop(statusIcon(stepResult.Result.Status))
+			if spinner != nil {
+				spinner.Stop(statusIcon(stepResult.Result.Status))
+			}
 			result.LiveOutputted = result.LiveOutputted || liveOutputEnabled
 			result.Results = append(result.Results, stepResult)
 			result.Passed = false
@@ -116,8 +143,14 @@ func (p *Pipeline) Run(ctx checker.CheckContext) PipelineResult {
 		if checkResult.Duration <= 0 {
 			checkResult.Duration = time.Since(stepStartedAt)
 		}
-		spinner.Stop(statusIcon(checkResult.Status))
+		if spinner != nil {
+			spinner.Stop(statusIcon(checkResult.Status))
+		}
 		result.LiveOutputted = result.LiveOutputted || liveOutputEnabled
+
+		if ttyAIReview {
+			printAIReviewResult(checkResult)
+		}
 
 		if cacheEnabled {
 			switch checkResult.Status {
@@ -128,7 +161,15 @@ func (p *Pipeline) Run(ctx checker.CheckContext) PipelineResult {
 			}
 		}
 
-		stepResult := StepResult{Name: step.Name, Result: checkResult}
+		stepResult := StepResult{
+			Name:     step.Name,
+			Type:     step.Type,
+			Provider: step.Provider,
+			Model:    step.Model,
+			Timeout:  step.Timeout,
+			Files:    append([]string(nil), ctx.StagedFiles...),
+			Result:   checkResult,
+		}
 		result.Results = append(result.Results, stepResult)
 
 		if checkResult.Status == checker.Failed || checkResult.Status == checker.Error {
@@ -152,11 +193,31 @@ func FormatOutput(result PipelineResult, verbose bool) string {
 
 func FormatSummary(result PipelineResult) string {
 	var builder strings.Builder
+	if ui.StdoutIsTTY() {
+		// In TTY mode, everything was printed live. Just the summary bar.
+		separator := "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+		builder.WriteString(ui.Colorize(ui.BttfAmber, separator))
+		builder.WriteString("\n")
+		passedCount, failedAt := pipelineSummary(result)
+		if result.Passed {
+			builder.WriteString(ui.SuccessText(fmt.Sprintf("✓ Pipeline passed (%d/%d checkers) in %s", passedCount, len(result.Results), result.Duration)))
+		} else {
+			builder.WriteString(ui.ErrorText(fmt.Sprintf("✗ Pipeline failed at %q (%d/%d checkers passed) in %s", failedAt, passedCount, len(result.Results), result.Duration)))
+		}
+		builder.WriteString("\n")
+		builder.WriteString(ui.Colorize(ui.BttfAmber, separator))
+		return builder.String()
+	}
 	writeOutput(&builder, result, false, true)
 	return builder.String()
 }
 
 func writeOutput(builder *strings.Builder, result PipelineResult, verbose bool, summaryOnly bool) {
+	if ui.StdoutIsTTY() && !summaryOnly {
+		writeTTYOutput(builder, result, verbose)
+		return
+	}
+
 	passedCount := 0
 	failedAt := ""
 
@@ -193,6 +254,106 @@ func writeOutput(builder *strings.Builder, result PipelineResult, verbose bool, 
 	} else {
 		builder.WriteString(ui.ErrorText(fmt.Sprintf("✗ Pipeline failed at %q (%d/%d checkers passed) in %s", failedAt, passedCount, len(result.Results), result.Duration)))
 	}
+}
+
+func writeTTYOutput(builder *strings.Builder, result PipelineResult, verbose bool) {
+	nonAISteps := make([]StepResult, 0, len(result.Results))
+	var aiStep *StepResult
+
+	for i := range result.Results {
+		step := result.Results[i]
+		if IsAIReviewStep(config.StepConfig{Type: step.Type}) {
+			copied := step
+			aiStep = &copied
+			continue
+		}
+		nonAISteps = append(nonAISteps, step)
+	}
+
+	if len(nonAISteps) > 0 {
+		builder.WriteString("Pipeline:\n")
+		for _, step := range nonAISteps {
+			builder.WriteString("  ")
+			builder.WriteString(ui.Colorize(statusColor(step.Result.Status), statusIcon(step.Result.Status)+" "+step.Name))
+			builder.WriteString(" (")
+			builder.WriteString(stepSummary(step))
+			builder.WriteString(")\n")
+			if shouldPrintOutput(step.Result.Status, verbose) && strings.TrimSpace(step.Result.Output) != "" {
+				builder.WriteString(indent(strings.TrimSpace(step.Result.Output), "    "))
+				builder.WriteString("\n")
+			}
+		}
+	}
+
+	if aiStep != nil {
+		if len(nonAISteps) > 0 {
+			builder.WriteString("\n")
+		}
+		writeAIReviewOutput(builder, *aiStep)
+	}
+
+	separator := "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	builder.WriteString("\n")
+	builder.WriteString(ui.Colorize(ui.BttfAmber, separator))
+	builder.WriteString("\n")
+	passedCount, failedAt := pipelineSummary(result)
+	if result.Passed {
+		builder.WriteString(ui.SuccessText(fmt.Sprintf("✓ Pipeline passed (%d/%d checkers) in %s", passedCount, len(result.Results), result.Duration)))
+	} else {
+		builder.WriteString(ui.ErrorText(fmt.Sprintf("✗ Pipeline failed at %q (%d/%d checkers passed) in %s", failedAt, passedCount, len(result.Results), result.Duration)))
+	}
+	builder.WriteString("\n")
+	builder.WriteString(ui.Colorize(ui.BttfAmber, separator))
+}
+
+func writeAIReviewOutput(builder *strings.Builder, step StepResult) {
+	builder.WriteString("AI Review:\n")
+	builder.WriteString("  ")
+	builder.WriteString(ui.Colorize(ui.BttfFlux, fmt.Sprintf("ℹ️  Sending to %s for review (timeout: %s)...", formatProvider(step), step.Timeout)))
+	builder.WriteString("\n\n")
+	builder.WriteString("  Files to review:\n")
+	for _, file := range step.Files {
+		builder.WriteString("    - ")
+		builder.WriteString(file)
+		builder.WriteString("\n")
+	}
+	builder.WriteString("\n")
+
+	if strings.TrimSpace(step.Result.Output) != "" {
+		builder.WriteString(indent(strings.TrimSpace(step.Result.Output), "  "))
+		builder.WriteString("\n")
+	}
+
+	switch step.Result.Status {
+	case checker.Passed:
+		builder.WriteString("\n  ")
+		builder.WriteString(ui.SuccessText("✅ CODE REVIEW PASSED"))
+		builder.WriteString("\n")
+	case checker.Failed:
+		builder.WriteString("\n  ")
+		builder.WriteString(ui.ErrorText("❌ CODE REVIEW FAILED"))
+		builder.WriteString("\n")
+	case checker.Error:
+		builder.WriteString("\n  ")
+		builder.WriteString(ui.WarningText("⚠️  CODE REVIEW ERROR"))
+		builder.WriteString("\n")
+	}
+}
+
+func pipelineSummary(result PipelineResult) (int, string) {
+	passedCount := 0
+	failedAt := ""
+
+	for _, step := range result.Results {
+		if step.Result.Status == checker.Passed {
+			passedCount++
+		}
+		if failedAt == "" && (step.Result.Status == checker.Failed || step.Result.Status == checker.Error) {
+			failedAt = step.Name
+		}
+	}
+
+	return passedCount, failedAt
 }
 
 func shouldPrintOutput(status checker.Status, verbose bool) bool {
@@ -308,7 +469,11 @@ func indent(value string, prefix string) string {
 func appendSkippedResults(result *PipelineResult, steps []config.StepConfig, start int, liveOutputEnabled bool) {
 	for i := start; i < len(steps); i++ {
 		stepResult := StepResult{
-			Name: steps[i].Name,
+			Name:     steps[i].Name,
+			Type:     steps[i].Type,
+			Provider: steps[i].Provider,
+			Model:    steps[i].Model,
+			Timeout:  steps[i].Timeout,
 			Result: checker.CheckResult{
 				Status: checker.Skipped,
 				Output: "skipped — previous step failed",
@@ -320,6 +485,64 @@ func appendSkippedResults(result *PipelineResult, steps []config.StepConfig, sta
 			result.LiveOutputted = true
 		}
 	}
+}
+
+// IsAIReviewStep reports whether a step is configured as an AI review checker.
+func IsAIReviewStep(step config.StepConfig) bool {
+	return isAIReview(step)
+}
+
+func isAIReview(step config.StepConfig) bool {
+	t := strings.TrimSpace(step.Type)
+	if t == "" {
+		t = strings.TrimSpace(step.Checker)
+	}
+	return t == "ai-review" || t == "ai" || t == "prompt"
+}
+
+func printAIReviewStart(step config.StepConfig, files []string) {
+	fmt.Fprintln(os.Stdout, "\nAI Review:")
+	fmt.Fprintf(os.Stdout, "  %s\n", ui.Colorize(ui.BttfFlux, fmt.Sprintf("ℹ️  Sending to %s for review (timeout: %s)...", formatProviderStep(step), step.Timeout)))
+	fmt.Fprintln(os.Stdout)
+	fmt.Fprintln(os.Stdout, "  Files to review:")
+	for _, file := range files {
+		fmt.Fprintf(os.Stdout, "    - %s\n", file)
+	}
+	fmt.Fprintln(os.Stdout)
+}
+
+func printAIReviewResult(result checker.CheckResult) {
+	output := strings.TrimSpace(result.Output)
+	if output != "" {
+		fmt.Fprintln(os.Stdout, output)
+		fmt.Fprintln(os.Stdout)
+	}
+
+	switch result.Status {
+	case checker.Passed:
+		fmt.Fprintf(os.Stdout, "%s\n", ui.SuccessText("✅ CODE REVIEW PASSED"))
+	case checker.Failed:
+		fmt.Fprintf(os.Stdout, "%s\n", ui.ErrorText("❌ CODE REVIEW FAILED"))
+		fmt.Fprintln(os.Stdout)
+		fmt.Fprintln(os.Stdout, "Fix the violations listed above before committing.")
+	case checker.Error:
+		fmt.Fprintf(os.Stdout, "%s\n", ui.WarningText("⚠️  CODE REVIEW ERROR"))
+	}
+	fmt.Fprintln(os.Stdout)
+}
+
+func formatProvider(step StepResult) string {
+	if strings.TrimSpace(step.Model) == "" {
+		return step.Provider
+	}
+	return fmt.Sprintf("%s (%s)", step.Provider, step.Model)
+}
+
+func formatProviderStep(step config.StepConfig) string {
+	if strings.TrimSpace(step.Model) == "" {
+		return step.Provider
+	}
+	return fmt.Sprintf("%s (%s)", step.Provider, step.Model)
 }
 
 func printLiveStepResult(step StepResult) {

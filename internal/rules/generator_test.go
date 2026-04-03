@@ -55,8 +55,12 @@ func TestDiscoverExplicitFileTakesPriority(t *testing.T) {
 	dir := t.TempDir()
 
 	// both files exist — explicit should win
-	os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte("agents content"), 0o644)
-	os.WriteFile(filepath.Join(dir, "custom.md"), []byte("custom content"), 0o644)
+	if err := os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte("agents content"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "custom.md"), []byte("custom content"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
 
 	content, ok := Discover(dir, "custom.md")
 	if !ok {
@@ -70,7 +74,9 @@ func TestDiscoverExplicitFileTakesPriority(t *testing.T) {
 func TestDiscoverAbsoluteRulesFilePath(t *testing.T) {
 	dir := t.TempDir()
 	absPath := filepath.Join(dir, "abs-rules.md")
-	os.WriteFile(absPath, []byte("absolute rules"), 0o644)
+	if err := os.WriteFile(absPath, []byte("absolute rules"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
 
 	content, ok := Discover(dir, absPath)
 	if !ok {
@@ -141,8 +147,12 @@ func TestDetectToolsFindsConfigs(t *testing.T) {
 	dir := t.TempDir()
 
 	// create some config files
-	os.WriteFile(filepath.Join(dir, ".golangci.yml"), []byte(""), 0o644)
-	os.WriteFile(filepath.Join(dir, ".prettierrc"), []byte("{}"), 0o644)
+	if err := os.WriteFile(filepath.Join(dir, ".golangci.yml"), []byte(""), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".prettierrc"), []byte("{}"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
 
 	tools := DetectTools(dir)
 
@@ -172,7 +182,9 @@ func TestDetectToolsRuffInPyproject(t *testing.T) {
 	pyproject := `[tool.ruff]
 line-length = 88
 `
-	os.WriteFile(filepath.Join(dir, "pyproject.toml"), []byte(pyproject), 0o644)
+	if err := os.WriteFile(filepath.Join(dir, "pyproject.toml"), []byte(pyproject), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
 
 	tools := DetectTools(dir)
 	found := false

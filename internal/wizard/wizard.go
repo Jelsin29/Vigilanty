@@ -11,13 +11,19 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/jelsin29/vigilanty/internal/tui"
 )
+
+var ErrCancelled = errors.New("wizard cancelled")
 
 // InitResult holds the user's choices from the interactive wizard.
 type InitResult struct {
 	ProjectType     string   // detected or selected preset
 	FilePatterns    []string // e.g. ["*.py", "*.pyi"]
 	ExcludePatterns []string // e.g. ["*_test.py", "*.spec.ts"]
+	Providers       []string // all selected providers, first entry is primary
 	Provider        string   // e.g. "claude", "gemini", "ollama:llama3"
 	RulesFile       string   // path to rules file, default "AGENTS.md"
 	GenerateRules   bool     // whether to generate AGENTS.md
@@ -25,7 +31,7 @@ type InitResult struct {
 
 // Run executes the interactive wizard and returns the user's choices.
 func Run(detectedPreset string) (*InitResult, error) {
-	defaults := defaultResult(detectedPreset)
+	defaults := DefaultResult(detectedPreset)
 
 	isTTY, err := stdinIsTTY()
 	if err != nil {
@@ -35,42 +41,26 @@ func Run(detectedPreset string) (*InitResult, error) {
 		return defaults, nil
 	}
 
-	reader := bufio.NewReader(os.Stdin)
-
-	fmt.Fprintln(os.Stdout, "🔧 Vigilanty Setup")
-	fmt.Fprintln(os.Stdout)
-	fmt.Fprintf(os.Stdout, "Detected: %s\n\n", detectedPresetLabel(defaults.ProjectType))
-
-	includePatterns, err := promptPatternList(reader, "include", defaults.FilePatterns)
+	m := tui.New(detectedPreset)
+	p := tea.NewProgram(m, tea.WithAltScreen())
+	finalModel, err := p.Run()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("run wizard: %w", err)
 	}
 
-	excludePatterns, err := promptPatternList(reader, "exclude", defaults.ExcludePatterns)
-	if err != nil {
-		return nil, err
+	result := finalModel.(tui.Model).Result()
+	if finalModel.(tui.Model).Cancelled() || result == nil {
+		return nil, ErrCancelled
 	}
-
-	provider, err := promptProvider(reader)
-	if err != nil {
-		return nil, err
-	}
-
-	generateRules, err := promptGenerateRules(reader)
-	if err != nil {
-		return nil, err
-	}
-
-	fmt.Fprintln(os.Stdout)
-	fmt.Fprintln(os.Stdout, "✅ Configuration complete!")
 
 	return &InitResult{
-		ProjectType:     defaults.ProjectType,
-		FilePatterns:    includePatterns,
-		ExcludePatterns: excludePatterns,
-		Provider:        provider,
-		RulesFile:       defaults.RulesFile,
-		GenerateRules:   generateRules,
+		ProjectType:     result.ProjectType,
+		FilePatterns:    result.FilePatterns,
+		ExcludePatterns: result.ExcludePatterns,
+		Providers:       result.Providers,
+		Provider:        result.Provider,
+		RulesFile:       result.RulesFile,
+		GenerateRules:   result.GenerateRules,
 	}, nil
 }
 
@@ -86,10 +76,15 @@ func defaultResult(detectedPreset string) *InitResult {
 		ProjectType:     projectType,
 		FilePatterns:    append([]string(nil), includePatterns...),
 		ExcludePatterns: append([]string(nil), excludePatterns...),
+		Providers:       []string{"claude"},
 		Provider:        "claude",
 		RulesFile:       "AGENTS.md",
 		GenerateRules:   true,
 	}
+}
+
+func DefaultResult(detectedPreset string) *InitResult {
+	return defaultResult(detectedPreset)
 }
 
 func stdinIsTTY() (bool, error) {
@@ -155,34 +150,6 @@ func detectedPresetLabel(preset string) string {
 	}
 }
 
-func promptPatternList(reader *bufio.Reader, mode string, defaults []string) ([]string, error) {
-	var title string
-	if mode == "include" {
-		title = "? Select file patterns to include in review:"
-	} else {
-		title = "? Select file patterns to exclude from review:"
-	}
-
-	defaultLabel := strings.Join(defaults, ", ")
-	if defaultLabel == "" {
-		defaultLabel = "(none)"
-	}
-
-	fmt.Fprintln(os.Stdout, title)
-	fmt.Fprintf(os.Stdout, "  Suggested: %s\n", defaultLabel)
-	fmt.Fprint(os.Stdout, "  Add more (comma-separated, or press Enter to keep): ")
-
-	input, err := readLine(reader)
-	if err != nil {
-		return nil, err
-	}
-	if input == "" {
-		return append([]string(nil), defaults...), nil
-	}
-
-	return mergePatterns(defaults, parsePatterns(input)), nil
-}
-
 func promptProvider(reader *bufio.Reader) (string, error) {
 	providers := []string{"claude", "gemini", "ollama", "codex", "opencode", "lmstudio", "github"}
 
@@ -230,25 +197,6 @@ func promptProvider(reader *bufio.Reader) (string, error) {
 			}
 			return provider + ":" + model, nil
 		}
-	}
-}
-
-func promptGenerateRules(reader *bufio.Reader) (bool, error) {
-	fmt.Fprintln(os.Stdout)
-	fmt.Fprint(os.Stdout, "? Generate AGENTS.md with coding standards? [Y/n]: ")
-
-	input, err := readLine(reader)
-	if err != nil {
-		return false, err
-	}
-
-	switch strings.ToLower(strings.TrimSpace(input)) {
-	case "", "y", "yes":
-		return true, nil
-	case "n", "no":
-		return false, nil
-	default:
-		return true, nil
 	}
 }
 
