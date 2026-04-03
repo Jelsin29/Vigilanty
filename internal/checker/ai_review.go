@@ -288,11 +288,9 @@ Begin your response now:
 	return builder.String(), nil
 }
 
-// providerArgs returns CLI flags for the provider. The prompt itself
-// gets piped through stdin to avoid hitting ARG_MAX on large diffs.
-// providerArgs returns CLI flags for the provider and an optional temp file
-// path containing the prompt. If the returned path is empty, the prompt is
-// piped through stdin (usesStdin=true) or included in the args (usesStdin=false).
+// providerArgs returns CLI flags and whether the prompt is piped via stdin.
+// When usesStdin is true the caller must feed the prompt through cmd.Stdin.
+// When false the prompt is already embedded in args as a positional argument.
 func (c *AIReviewChecker) providerArgs(prompt string) (args []string, usesStdin bool) {
 	switch c.provider {
 	case "claude":
@@ -350,9 +348,20 @@ func matchesAny(patterns []*regexp.Regexp, text string) bool {
 var ansiRe = regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]|\x1b\].*?\x1b\\|\x1b[^[\]]`)
 
 // toolLineRe matches opencode/AI tool-call trace lines that pollute review output.
-// Examples: "> build · gpt-5.4", "✱ Grep ...", "→ Read ...", "⚙ engram_mem_search ...",
-// "% WebFetch ...", "$ opencode run --help"
-var toolLineRe = regexp.MustCompile(`^(?:>|✱|→|⚙|%|\$|⠋|⠙|⠹|⠸|⠼|⠴|⠦|⠧|⠇|⠏)\s`)
+// Uses specific patterns to avoid stripping valid markdown blockquotes ("> ").
+// Matches: "> build · model", "✱ Grep ...", "→ Read ...", "⚙ func_name ...",
+// "% WebFetch ...", "$ command ...", spinner frames "⠋ ..."
+var toolLineRe = regexp.MustCompile(
+	`^(?:` +
+		`> \S+ · ` + // opencode model header: "> build · gpt-5.4"
+		`|✱ ` + // opencode grep: "✱ Grep ..."
+		`|→ ` + // opencode read: "→ Read ..."
+		`|⚙ ` + // opencode tool call: "⚙ engram_mem_search ..."
+		`|% ` + // opencode web fetch: "% WebFetch ..."
+		`|\$ ` + // shell command echo: "$ opencode run ..."
+		`|[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] ` + // spinner frames
+		`)`,
+)
 
 func stripMarkdown(s string) string {
 	s = ansiRe.ReplaceAllString(s, "")
