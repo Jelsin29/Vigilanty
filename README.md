@@ -1,11 +1,17 @@
-# Vigilanty — Configurable verification pipeline for git commits
+<p align="center">
+  <img src="Vigilanty.png" alt="Vigilanty — Your commits, verified" width="100%" />
+</p>
 
-![Version](https://img.shields.io/badge/version-v0.1.0-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
-![Go Version](https://img.shields.io/badge/go-1.22.2-00ADD8?logo=go)
-![Platforms](https://img.shields.io/badge/platforms-linux%20%7C%20macOS%20%7C%20windows-lightgrey)
-![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)
-![Tests](https://img.shields.io/badge/tests-passing-brightgreen)
+<p align="center">
+  <img src="https://img.shields.io/badge/version-v0.2.0-blue" alt="Version" />
+  <img src="https://img.shields.io/badge/license-MIT-green" alt="License" />
+  <img src="https://img.shields.io/badge/go-1.22.2-00ADD8?logo=go" alt="Go Version" />
+  <img src="https://img.shields.io/badge/platforms-linux%20%7C%20macOS%20%7C%20windows-lightgrey" alt="Platforms" />
+  <img src="https://img.shields.io/badge/PRs-welcome-brightgreen" alt="PRs Welcome" />
+  <img src="https://img.shields.io/badge/tests-passing-brightgreen" alt="Tests" />
+</p>
+
+# Vigilanty — Your commits, verified
 
 Vigilanty runs a configurable pre-commit verification pipeline for staged changes, combining shell-based checks and AI review in a single CLI.
 
@@ -50,7 +56,7 @@ Vigilanty reads the staged diff, executes steps sequentially, and returns a non-
 ### Go install
 
 ```bash
-go install github.com/jelsin29/vigilanty@v0.1.0
+go install github.com/jelsin29/vigilanty@v0.2.0
 ```
 
 ### Binary Install 
@@ -61,7 +67,7 @@ curl -fsSL https://raw.githubusercontent.com/Jelsin29/Vigilanty/main/scripts/aut
 
 OR Install a specific version:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Jelsin29/Vigilanty/main/scripts/autoinstall.sh | VIGILANTY_VERSION=v0.1.0 bash
+curl -fsSL https://raw.githubusercontent.com/Jelsin29/Vigilanty/main/scripts/autoinstall.sh | VIGILANTY_VERSION=v0.2.0 bash
 ```
 
 ### Homebrew (recommended)
@@ -86,18 +92,16 @@ make build
 # 1) Enter your repository
 cd /path/to/your/repo
 
-# 2) Scaffold a config
-vigilanty init --preset go
+# 2) Launch the interactive setup wizard
+vigilanty init
 
-# 3) Edit the generated file
-$EDITOR .vigilanty.yml
-
-# 4) Install the git pre-commit hook
+# 3) Install the git pre-commit hook
 vigilanty install
 
-# 5) You're done
-# Every commit now runs the pipeline automatically
+# 4) You're done — every commit now runs the pipeline automatically
 ```
+
+The TUI wizard detects your system tools and AI providers, lets you select which ones to use, and generates `.vigilanty.yml` for you. You can also skip the wizard with `vigilanty init --preset go`.
 
 ## Configuration
 
@@ -153,7 +157,7 @@ pipeline:
 | `name` | Yes | Unique step name shown in output. |
 | `checker` | Yes | Checker type. Common values: `shell`, `ai-review`. |
 | `command` | For `shell` | Command executed in the repository root. |
-| `provider` | For `ai-review` | AI CLI to use: `claude`, `gemini`, or `ollama`. |
+| `provider` | For `ai-review` | AI CLI to use: `claude`, `gemini`, `codex`, `opencode`, `ollama`, `lmstudio`, or `github`. |
 | `prompt` | For `ai-review` | Review instructions sent together with the staged diff. |
 | `model` | For `ollama` | Model name required by the Ollama provider. |
 | `timeout` | No | Step-specific timeout such as `60s` or `2m`. |
@@ -184,7 +188,11 @@ Supported AI CLI providers:
 | --- | --- | --- |
 | `claude` | https://docs.anthropic.com/en/docs/claude-code | Uses the local Claude CLI |
 | `gemini` | https://github.com/google-gemini/gemini-cli | Uses the Gemini CLI with prompt input |
+| `codex` | https://platform.openai.com/docs/codex/cli | OpenAI Codex CLI |
+| `opencode` | https://github.com/sst/opencode | Prompt passed as positional arg, supports `model` field |
 | `ollama` | https://ollama.ai/download | Requires `model` in config |
+| `lmstudio` | https://lmstudio.ai/ | Local model server |
+| `github` | https://cli.github.com/ | GitHub Copilot models via `gh` CLI |
 
 If the selected CLI is not installed, Vigilanty fails the step and prints the provider install URL.
 
