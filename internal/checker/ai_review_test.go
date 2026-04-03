@@ -82,8 +82,10 @@ func TestStripMarkdownANSI(t *testing.T) {
 
 func TestProviderArgsClaude(t *testing.T) {
 	c := &AIReviewChecker{provider: "claude"}
-	args := c.providerArgs()
-	// should use stdin marker "-" instead of the prompt itself
+	args, usesStdin := c.providerArgs("test prompt")
+	if !usesStdin {
+		t.Fatal("claude should use stdin")
+	}
 	if len(args) < 2 || args[1] != "-" {
 		t.Fatalf("providerArgs() = %v, want '-' as stdin marker", args)
 	}
@@ -91,13 +93,49 @@ func TestProviderArgsClaude(t *testing.T) {
 
 func TestProviderArgsOllama(t *testing.T) {
 	c := &AIReviewChecker{provider: "ollama", model: "llama3"}
-	args := c.providerArgs()
+	args, usesStdin := c.providerArgs("test prompt")
+	if !usesStdin {
+		t.Fatal("ollama should use stdin")
+	}
 	if args[0] != "run" || args[1] != "llama3" {
 		t.Fatalf("providerArgs() = %v, want [run llama3]", args)
 	}
-	// prompt should NOT be in args (it goes through stdin)
 	if len(args) > 2 {
 		t.Fatalf("providerArgs() has too many args, prompt should go via stdin: %v", args)
+	}
+}
+
+func TestProviderArgsOpencode(t *testing.T) {
+	c := &AIReviewChecker{provider: "opencode", model: "openai/gpt-5.4"}
+	args, usesStdin := c.providerArgs("review this diff")
+	if usesStdin {
+		t.Fatal("opencode should NOT use stdin, prompt goes as positional arg")
+	}
+	if args[0] != "run" {
+		t.Fatalf("providerArgs()[0] = %q, want 'run'", args[0])
+	}
+	hasModel := false
+	for i, arg := range args {
+		if arg == "--model" && i+1 < len(args) && args[i+1] == "openai/gpt-5.4" {
+			hasModel = true
+		}
+	}
+	if !hasModel {
+		t.Fatalf("providerArgs() missing --model flag: %v", args)
+	}
+	if args[len(args)-1] != "review this diff" {
+		t.Fatalf("providerArgs() missing prompt as last arg: %v", args)
+	}
+}
+
+func TestProviderArgsCodex(t *testing.T) {
+	c := &AIReviewChecker{provider: "codex"}
+	args, usesStdin := c.providerArgs("review this")
+	if usesStdin {
+		t.Fatal("codex should NOT use stdin")
+	}
+	if args[0] != "exec" || args[1] != "review this" {
+		t.Fatalf("providerArgs() = %v, want [exec 'review this']", args)
 	}
 }
 
@@ -211,13 +249,13 @@ func TestBuildPrompt(t *testing.T) {
 					t.Fatalf("WriteFile() error = %v", err)
 				}
 			},
-			want: []string{"## Code Review Rules", "no panics", "## Task", "review this", "## Diff to Review", "diff --git"},
+			want: []string{"CODING STANDARDS", "no panics", "ADDITIONAL INSTRUCTIONS", "review this", "DIFF TO REVIEW", "diff --git", "STATUS: PASSED", "STATUS: FAILED"},
 		},
 		{
 			name:    "without rules file",
 			setup:   func(t *testing.T, dir string) {},
-			want:    []string{"Review the staged changes and return a final verdict using STATUS: PASSED or STATUS: FAILED.", "Additional Instructions:", "review this", "Git Diff:"},
-			notWant: []string{"## Code Review Rules"},
+			want:    []string{"You are a code reviewer", "ADDITIONAL INSTRUCTIONS", "review this", "DIFF TO REVIEW", "Begin your response now:"},
+			notWant: []string{"CODING STANDARDS"},
 		},
 	}
 
@@ -309,38 +347,3 @@ func TestAIReviewCheckerAmbiguousResponse(t *testing.T) {
 		t.Fatalf("Check().Output = %q, should not start with a newline", result.Output)
 	}
 }
-
-// this step will be done in ai-review
-// func TestAIReviewCheckerMissingCLIIncludesInstallURL(t *testing.T) {
-// 	skipIfNoLlama3(t)
-// 	instance, err := newAIReviewChecker(map[string]interface{}{
-// 		"provider": "ollama",
-// 		"model":    "llama3",
-// 		"prompt":   "review this diff",
-// 		"timeout":  "2m",
-// 	})
-// 	if err != nil {
-// 		t.Fatalf("newAIReviewChecker() error = %v, want nil", err)
-// 	}
-
-// 	cmd := exec.Command("ollama", "show", "llama3")
-// 	if err := cmd.Run(); err != nil {
-// 		t.Fatalf("llama3 model not available in ollama, skipping test. To install, follow instructions at https://ollama.com/docs/installation")
-// 	}
-
-// 	result := instance.Check(CheckContext{Root: t.TempDir(), Diff: "diff --git a/x b/x"})
-// 	if result.Status == Error || !strings.Contains(result.Output, "AI CLI not found:") {
-// 		t.Fatalf("Check() = %+v", result)
-// 	}
-// }
-
-// func skipIfNoLlama3(t *testing.T) {
-// 	t.Helper()
-// 	if _, err := exec.LookPath("ollama"); err != nil {
-// 		t.Fatalf("ollama CLI not found, skipping test")
-// 	}
-// 	cmd := exec.Command("ollama", "show", "llama3")
-// 	if err := cmd.Run(); err != nil {
-// 		t.Fatalf("llama3 model not available in ollama, skipping test.\nNEED TO INSTALL `llama3` for OLLAMA.")
-// 	}
-// }

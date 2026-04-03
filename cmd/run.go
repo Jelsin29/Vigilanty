@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/jelsin29/vigilanty/internal/checker"
@@ -48,6 +49,10 @@ func newRunCommand() *cobra.Command {
 
 			if verbose {
 				cfg.Global.Verbose = true
+			}
+
+			if ui.StdoutIsTTY() {
+				printRunBanner(cfg, noCache)
 			}
 
 			if ciMode && !ui.StdoutIsTTY() {
@@ -109,6 +114,50 @@ func newRunCommand() *cobra.Command {
 	command.Flags().StringVar(&baseBranch, "base", "", "Base branch for PR mode (default: auto-detect main/master)")
 	command.Flags().BoolVar(&ciMode, "ci", false, "Review last commit changes (CI/CD mode)")
 	return command
+}
+
+func printRunBanner(cfg *config.Config, noCache bool) {
+	if cfg == nil {
+		return
+	}
+
+	fmt.Fprintf(os.Stdout, "%s\n\n", ui.RunBanner(Version))
+
+	if step, ok := findAIReviewStep(cfg.Pipeline); ok {
+		provider := step.Provider
+		if strings.TrimSpace(step.Model) != "" {
+			provider = fmt.Sprintf("%s (%s)", provider, step.Model)
+		}
+		fmt.Fprintln(os.Stdout, ui.Colorize(ui.BttfFlux, fmt.Sprintf("ℹ️  Provider: %s", provider)))
+
+		if strings.TrimSpace(step.RulesFile) != "" {
+			fmt.Fprintln(os.Stdout, ui.Colorize(ui.BttfFlux, fmt.Sprintf("ℹ️  Rules file: %s", step.RulesFile)))
+		}
+	}
+
+	if len(cfg.Global.FilePatterns) > 0 {
+		fmt.Fprintln(os.Stdout, ui.Colorize(ui.BttfFlux, fmt.Sprintf("ℹ️  File patterns: %s", strings.Join(cfg.Global.FilePatterns, ", "))))
+	}
+	if len(cfg.Global.ExcludePatterns) > 0 {
+		fmt.Fprintln(os.Stdout, ui.Colorize(ui.BttfFlux, fmt.Sprintf("ℹ️  Exclude: %s", strings.Join(cfg.Global.ExcludePatterns, ", "))))
+	}
+
+	cacheState := "enabled"
+	if noCache {
+		cacheState = "disabled"
+	}
+	fmt.Fprintln(os.Stdout, ui.Colorize(ui.BttfFlux, fmt.Sprintf("ℹ️  Cache: %s", cacheState)))
+	fmt.Fprintln(os.Stdout)
+}
+
+func findAIReviewStep(steps []config.StepConfig) (config.StepConfig, bool) {
+	for _, step := range steps {
+		if pipeline.IsAIReviewStep(step) {
+			return step, true
+		}
+	}
+
+	return config.StepConfig{}, false
 }
 
 func resolveRunDiff(repoRoot string, maxBytes int, prMode bool, baseBranch string, ciMode bool) (string, []string, bool, error) {
