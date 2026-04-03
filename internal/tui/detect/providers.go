@@ -72,7 +72,7 @@ func DetectProviders(ctx context.Context) []ProviderInfo {
 		{Name: "ollama", Binary: "ollama", NeedsModel: true, InstallURL: "https://ollama.com/download"},
 		{Name: "codex", Binary: "codex", NeedsModel: false, InstallURL: "https://github.com/openai/codex"},
 		{Name: "opencode", Binary: "opencode", NeedsModel: true, InstallURL: "https://opencode.ai"},
-		{Name: "gh", Binary: "gh", NeedsModel: true, InstallURL: "https://cli.github.com"},
+		{Name: "github", Binary: "gh", NeedsModel: true, InstallURL: "https://cli.github.com"},
 	}
 
 	results := make([]ProviderInfo, len(specs)+1)
