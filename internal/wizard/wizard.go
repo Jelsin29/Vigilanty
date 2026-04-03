@@ -150,34 +150,6 @@ func detectedPresetLabel(preset string) string {
 	}
 }
 
-func promptPatternList(reader *bufio.Reader, mode string, defaults []string) ([]string, error) {
-	var title string
-	if mode == "include" {
-		title = "? Select file patterns to include in review:"
-	} else {
-		title = "? Select file patterns to exclude from review:"
-	}
-
-	defaultLabel := strings.Join(defaults, ", ")
-	if defaultLabel == "" {
-		defaultLabel = "(none)"
-	}
-
-	fmt.Fprintln(os.Stdout, title)
-	fmt.Fprintf(os.Stdout, "  Suggested: %s\n", defaultLabel)
-	fmt.Fprint(os.Stdout, "  Add more (comma-separated, or press Enter to keep): ")
-
-	input, err := readLine(reader)
-	if err != nil {
-		return nil, err
-	}
-	if input == "" {
-		return append([]string(nil), defaults...), nil
-	}
-
-	return mergePatterns(defaults, parsePatterns(input)), nil
-}
-
 func promptProvider(reader *bufio.Reader) (string, error) {
 	providers := []string{"claude", "gemini", "ollama", "codex", "opencode", "lmstudio", "github"}
 
@@ -225,25 +197,6 @@ func promptProvider(reader *bufio.Reader) (string, error) {
 			}
 			return provider + ":" + model, nil
 		}
-	}
-}
-
-func promptGenerateRules(reader *bufio.Reader) (bool, error) {
-	fmt.Fprintln(os.Stdout)
-	fmt.Fprint(os.Stdout, "? Generate AGENTS.md with coding standards? [Y/n]: ")
-
-	input, err := readLine(reader)
-	if err != nil {
-		return false, err
-	}
-
-	switch strings.ToLower(strings.TrimSpace(input)) {
-	case "", "y", "yes":
-		return true, nil
-	case "n", "no":
-		return false, nil
-	default:
-		return true, nil
 	}
 }
 

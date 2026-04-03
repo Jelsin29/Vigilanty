@@ -7,6 +7,7 @@ const (
 	StepSystemInfo
 	StepAIDetect
 	StepProviderSelect
+	StepSubProviderSelect
 	StepModelSelect
 	StepPatterns
 	StepAgentsMd

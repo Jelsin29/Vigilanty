@@ -34,12 +34,13 @@ func Run(ctx context.Context) Summary {
 		if !provider.Found || !provider.NeedsModel || rctx.Err() != nil {
 			continue
 		}
+		if len(provider.SubProviders) > 0 || len(provider.Models) > 0 {
+			continue
+		}
 
-		switch provider.Name {
-		case "ollama":
-			provider.Models = discoverOllamaModels(rctx)
-		case "lmstudio":
-			provider.Models = discoverLMStudioModels(rctx)
+		provider.SubProviders = DiscoverSubProviders(rctx, provider.Name)
+		if len(provider.SubProviders) == 0 {
+			provider.Models = DiscoverModels(rctx, provider.Name)
 		}
 	}
 

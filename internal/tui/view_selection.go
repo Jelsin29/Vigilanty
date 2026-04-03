@@ -1,6 +1,50 @@
 package tui
 
-import "fmt"
+import (
+	"fmt"
+)
+
+const scrollWindowSize = 10
+
+// scrollWindow computes the visible window [start, end) for a list of total
+// items, keeping cursorIdx visible and the window at most scrollWindowSize.
+func scrollWindow(total, cursorIdx int) (start, end int) {
+	if total <= scrollWindowSize {
+		return 0, total
+	}
+	// keep cursor roughly centered
+	start = cursorIdx - scrollWindowSize/2
+	if start < 0 {
+		start = 0
+	}
+	end = start + scrollWindowSize
+	if end > total {
+		end = total
+		start = end - scrollWindowSize
+	}
+	return start, end
+}
+
+func renderScrollList(items []string, cursorIdx int, cursorStr string, selectedStyle, unselectedStyle func(...string) string) []string {
+	total := len(items)
+	start, end := scrollWindow(total, cursorIdx)
+
+	lines := make([]string, 0, end-start+2)
+	if start > 0 {
+		lines = append(lines, MutedStyle.Render("  ↑ more"))
+	}
+	for i := start; i < end; i++ {
+		if i == cursorIdx {
+			lines = append(lines, cursorStr+selectedStyle(items[i]))
+		} else {
+			lines = append(lines, "  "+unselectedStyle(items[i]))
+		}
+	}
+	if end < total {
+		lines = append(lines, MutedStyle.Render("  ↓ more"))
+	}
+	return lines
+}
 
 func (m Model) viewProviderSelect() string {
 	body := []string{
@@ -27,7 +71,7 @@ func (m Model) viewProviderSelect() string {
 	body = append(body, "")
 	for i, option := range []string{"Continue", "Back"} {
 		idx := len(m.providers) + i
-		line := option
+		var line string
 		if idx == m.providerCursor {
 			line = cursor + SelectedStyle.Render(option)
 		} else {
@@ -48,30 +92,49 @@ func (m Model) viewModelSelect() string {
 		return renderScreen(m.width, "", []string{"No provider selected."}, "esc: back")
 	}
 
+	title := fmt.Sprintf("Select model for %s", providerLabel(provider.Name))
+	if subProvider, ok := m.activeSubProviderInfo(); ok {
+		title = fmt.Sprintf("Select model for %s (%s)", providerLabel(provider.Name), subProvider.Name)
+	}
+
 	if !m.modelsDetected {
-		body := []string{fmt.Sprintf("Select model for %s", providerLabel(provider.Name)), "", m.spinner.View() + " Discovering models..."}
+		body := []string{title, "", m.spinner.View() + " Discovering models..."}
 		return renderScreen(m.width, "", body, "esc: back")
 	}
 
 	if len(m.modelOptions) == 0 {
 		body := []string{
-			fmt.Sprintf("Enter model for %s", providerLabel(provider.Name)),
+			title,
 			"",
 			"  " + m.textInput.View(),
 		}
 		return renderScreen(m.width, "", body, "enter: confirm • esc: back")
 	}
 
-	body := []string{fmt.Sprintf("Select model for %s", providerLabel(provider.Name)), ""}
-	for i, model := range m.modelOptions {
-		prefix := "  "
-		if i == m.modelCursor {
-			prefix = cursor
-			body = append(body, prefix+SelectedStyle.Render(model))
-			continue
-		}
-		body = append(body, prefix+UnselectedStyle.Render(model))
+	body := []string{title, ""}
+	body = append(body, renderScrollList(
+		m.modelOptions, m.modelCursor, cursor,
+		SelectedStyle.Render, UnselectedStyle.Render,
+	)...)
+
+	return renderScreen(m.width, "", body, "j/k: navigate • enter: select • esc: back")
+}
+
+func (m Model) viewSubProviderSelect() string {
+	provider, _, ok := m.currentModelProvider()
+	if !ok {
+		return renderScreen(m.width, "", []string{"No provider selected."}, "esc: back")
 	}
+
+	body := []string{fmt.Sprintf("Select provider (%s)", providerLabel(provider.Name)), ""}
+	subProviderLabels := make([]string, len(m.subProviders))
+	for i, sp := range m.subProviders {
+		subProviderLabels[i] = fmt.Sprintf("%s (%d models)", sp.Name, sp.ModelCount)
+	}
+	body = append(body, renderScrollList(
+		subProviderLabels, m.subProviderCursor, cursor,
+		SelectedStyle.Render, UnselectedStyle.Render,
+	)...)
 
 	return renderScreen(m.width, "", body, "j/k: navigate • enter: select • esc: back")
 }

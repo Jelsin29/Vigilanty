@@ -19,14 +19,6 @@ func (m Model) currentModelProvider() (detect.ProviderInfo, int, bool) {
 	return m.providers[m.activeModelProvider], m.activeModelProvider, true
 }
 
-func (m Model) selectedProviderInfo() (detect.ProviderInfo, bool) {
-	if m.selectedProvider < 0 || m.selectedProvider >= len(m.providers) {
-		return detect.ProviderInfo{}, false
-	}
-
-	return m.providers[m.selectedProvider], true
-}
-
 func (m Model) selectedProviderIndices() []int {
 	indices := make([]int, 0, len(m.selectedProviders))
 	for idx := range m.selectedProviders {
@@ -63,6 +55,26 @@ func (m Model) selectedProviderNames() []string {
 	return providers
 }
 
+func (m Model) providerHasSubProviders(idx int) bool {
+	if idx < 0 || idx >= len(m.providers) {
+		return false
+	}
+	return len(m.providers[idx].SubProviders) > 0
+}
+
+func (m Model) activeSubProviderInfo() (detect.SubProvider, bool) {
+	provider, _, ok := m.currentModelProvider()
+	if !ok || strings.TrimSpace(m.activeSubProvider) == "" {
+		return detect.SubProvider{}, false
+	}
+	for _, subProvider := range provider.SubProviders {
+		if strings.TrimSpace(subProvider.ID) == strings.TrimSpace(m.activeSubProvider) {
+			return subProvider, true
+		}
+	}
+	return detect.SubProvider{}, false
+}
+
 func (m *Model) initializeProviderSelections() {
 	if m.providerSelectionsSet {
 		return
@@ -70,6 +82,12 @@ func (m *Model) initializeProviderSelections() {
 	for i, provider := range m.providers {
 		if provider.Found {
 			m.selectedProviders[i] = true
+		}
+	}
+	for i, provider := range m.providers {
+		if provider.Found {
+			m.providerCursor = i
+			break
 		}
 	}
 	m.providerSelectionsSet = true
@@ -142,17 +160,38 @@ func (m *Model) beginModelFlow() Step {
 		}
 		m.activeModelProvider = idx
 		m.selectedModel = ""
+		m.activeSubProvider = ""
 		m.modelCursor = 0
+		m.subProviderCursor = 0
+		m.subProviders = append([]detect.SubProvider(nil), provider.SubProviders...)
 		m.modelOptions = append([]string(nil), provider.Models...)
-		m.modelsDetected = len(provider.Models) > 0
+		m.modelsDetected = len(provider.Models) > 0 || len(provider.SubProviders) > 0
 		m.textInput.SetValue("")
+		if m.providerHasSubProviders(idx) {
+			return StepSubProviderSelect
+		}
 		return StepModelSelect
 	}
 	m.activeModelProvider = -1
+	m.activeSubProvider = ""
 	m.selectedModel = ""
+	m.subProviders = nil
 	m.modelOptions = nil
 	m.modelsDetected = false
 	return StepPatterns
+}
+
+func (m *Model) storeCurrentSubProvider(index int) Step {
+	if index < 0 || index >= len(m.subProviders) {
+		return StepSubProviderSelect
+	}
+	subProvider := m.subProviders[index]
+	m.activeSubProvider = strings.TrimSpace(subProvider.ID)
+	m.modelOptions = append([]string(nil), subProvider.Models...)
+	m.modelCursor = 0
+	m.modelsDetected = true
+	m.textInput.SetValue("")
+	return StepModelSelect
 }
 
 func (m *Model) storeCurrentModel(value string) Step {
@@ -163,8 +202,15 @@ func (m *Model) storeCurrentModel(value string) Step {
 	if trimmed == "" {
 		return StepModelSelect
 	}
+	if strings.TrimSpace(m.activeSubProvider) != "" {
+		trimmed = strings.TrimSpace(m.activeSubProvider) + "/" + trimmed
+	}
 	m.selectedProviderModel[m.activeModelProvider] = trimmed
 	m.selectedModel = trimmed
+	m.activeSubProvider = ""
+	m.subProviders = nil
+	m.modelOptions = nil
+	m.modelsDetected = false
 	return m.beginModelFlow()
 }
 
@@ -177,6 +223,9 @@ func providerLabel(name string) string {
 
 func providerStatus(provider detect.ProviderInfo) string {
 	if provider.Found {
+		if len(provider.SubProviders) > 0 {
+			return fmt.Sprintf("%s found (%d families)", CheckMark, len(provider.SubProviders))
+		}
 		if len(provider.Models) > 0 {
 			return fmt.Sprintf("%s found (%d models)", CheckMark, len(provider.Models))
 		}
@@ -237,7 +286,8 @@ func centerLine(width int, text string) string {
 }
 
 func renderScreen(width int, title string, body []string, footer string) string {
-	lines := make([]string, 0, len(body)+4)
+	lines := make([]string, 0, len(body)+8)
+	lines = append(lines, Banner(width), "")
 	if title != "" {
 		lines = append(lines, TitleStyle.Render(title), "")
 	}

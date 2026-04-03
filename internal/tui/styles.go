@@ -3,59 +3,54 @@ package tui
 import "github.com/charmbracelet/lipgloss"
 
 var (
-	ColorBase       = lipgloss.Color("#191724")
-	ColorSurface    = lipgloss.Color("#1f1d2e")
-	ColorOverlay    = lipgloss.Color("#6e6a86")
-	ColorText       = lipgloss.Color("#e0def4")
-	ColorSubtext    = lipgloss.Color("#908caa")
-	ColorLavender   = lipgloss.Color("#c4a7e7")
-	ColorGreen      = lipgloss.Color("#9ccfd8")
-	ColorPeach      = lipgloss.Color("#f6c177")
-	ColorRed        = lipgloss.Color("#eb6f92")
-	ColorBlue       = lipgloss.Color("#31748f")
-	ColorMauve      = lipgloss.Color("#ebbcba")
-	ColorTeal       = lipgloss.Color("#9ccfd8")
-	ColorBTTFOrange = lipgloss.Color("#FF6F00")
-	ColorBTTFGold   = lipgloss.Color("#FFB300")
-	ColorBTTFRed    = lipgloss.Color("#FF1744")
+	// BTTF warm palette — all in the amber/gold/orange family
+	ColorFlux      = lipgloss.Color("#FF6F00") // bright orange — eye gradient, accents
+	ColorGold      = lipgloss.Color("#FFB300") // gold — titles, selected items
+	ColorAmber     = lipgloss.Color("#D4A026") // muted amber — frame border
+	ColorCircuit   = lipgloss.Color("#FF1744") // red — errors, eye gradient tail
+	ColorAfterburn = lipgloss.Color("#E53935") // deep red — secondary error
+	ColorChrome    = lipgloss.Color("#E8E0D0") // warm white — main text
+	ColorAlloy     = lipgloss.Color("#B8AD9E") // warm silver — labels
+	ColorSmoke     = lipgloss.Color("#8B8378") // warm gray — hints, muted
+	ColorReadout   = lipgloss.Color("#00E676") // neon green — success (universal)
 
 	FrameStyle = lipgloss.NewStyle().
 			Border(lipgloss.DoubleBorder()).
-			BorderForeground(ColorLavender).
+			BorderForeground(ColorAmber).
 			Padding(1, 2).
-			Foreground(ColorText)
+			Foreground(ColorChrome)
 
 	TitleStyle = lipgloss.NewStyle().
-			Foreground(ColorLavender).
+			Foreground(ColorGold).
 			Bold(true)
 
 	LabelStyle = lipgloss.NewStyle().
-			Foreground(ColorSubtext).
+			Foreground(ColorAlloy).
 			Bold(true)
 
 	ValueStyle = lipgloss.NewStyle().
-			Foreground(ColorText)
+			Foreground(ColorChrome)
 
 	SelectedStyle = lipgloss.NewStyle().
-			Foreground(ColorLavender).
+			Foreground(ColorGold).
 			Bold(true)
 
 	UnselectedStyle = lipgloss.NewStyle().
-			Foreground(ColorText)
+			Foreground(ColorChrome)
 
 	SuccessStyle = lipgloss.NewStyle().
-			Foreground(ColorGreen).
+			Foreground(ColorReadout).
 			Bold(true)
 
 	ErrorStyle = lipgloss.NewStyle().
-			Foreground(ColorRed).
+			Foreground(ColorCircuit).
 			Bold(true)
 
 	MutedStyle = lipgloss.NewStyle().
-			Foreground(ColorOverlay)
+			Foreground(ColorSmoke)
 
 	HelpStyle = lipgloss.NewStyle().
-			Foreground(ColorSubtext)
+			Foreground(ColorSmoke)
 
 	KeyHintStyle = HelpStyle.Italic(true)
 
@@ -66,7 +61,8 @@ var (
 func BorderedBox(content string) string {
 	return lipgloss.NewStyle().
 		Border(lipgloss.DoubleBorder()).
-		BorderForeground(ColorLavender).
+		BorderForeground(ColorAmber).
 		Padding(1, 2).
+		Foreground(ColorChrome).
 		Render(content)
 }

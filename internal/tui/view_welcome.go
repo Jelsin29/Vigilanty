@@ -3,13 +3,11 @@ package tui
 func (m Model) viewWelcome() string {
 	items := []string{"Setup project", "Quit"}
 	body := []string{
-		centerLine(60, Banner(m.width)),
-		"",
 		centerLine(60, RenderVersion(m.version)),
 		"",
 	}
 	for i, item := range items {
-		line := "  " + item
+		var line string
 		if i == m.welcomeCursor {
 			line = cursor + SelectedStyle.Render(item)
 		} else {

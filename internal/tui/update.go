@@ -37,6 +37,8 @@ func (m *Model) updateCurrentStep(msg tea.Msg) tea.Cmd {
 		return m.updateAIDetect(msg)
 	case StepProviderSelect:
 		return m.updateProviderSelect(msg)
+	case StepSubProviderSelect:
+		return m.updateSubProviderSelect(msg)
 	case StepModelSelect:
 		return m.updateModelSelect(msg)
 	case StepPatterns:
@@ -104,10 +106,22 @@ func (m *Model) updateProviderSelect(msg tea.Msg) tea.Cmd {
 	case "j", "down":
 		if m.providerCursor < m.providerMenuSize()-1 {
 			m.providerCursor++
+			for m.providerCursor < len(m.providers) && !m.providers[m.providerCursor].Found {
+				m.providerCursor++
+			}
+			if m.providerCursor >= m.providerMenuSize() {
+				m.providerCursor = m.providerMenuSize() - 1
+			}
 		}
 	case "k", "up":
 		if m.providerCursor > 0 {
 			m.providerCursor--
+			for m.providerCursor >= 0 && m.providerCursor < len(m.providers) && !m.providers[m.providerCursor].Found {
+				m.providerCursor--
+			}
+			if m.providerCursor < 0 {
+				m.providerCursor = 0
+			}
 		}
 	case "space", " ":
 		if m.providerMenuTarget() != "provider" {
@@ -117,6 +131,7 @@ func (m *Model) updateProviderSelect(msg tea.Msg) tea.Cmd {
 	case "enter":
 		switch m.providerMenuTarget() {
 		case "provider":
+			m.toggleProvider(m.providerCursor)
 			return nil
 		case "back":
 			return nextStepCmd(StepAIDetect)
@@ -160,6 +175,28 @@ func (m *Model) updateModelSelect(msg tea.Msg) tea.Cmd {
 		}
 	case "enter":
 		return nextStepCmd(m.storeCurrentModel(m.modelOptions[m.modelCursor]))
+	}
+
+	return nil
+}
+
+func (m *Model) updateSubProviderSelect(msg tea.Msg) tea.Cmd {
+	key, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return nil
+	}
+
+	switch key.String() {
+	case "j", "down":
+		if m.subProviderCursor < len(m.subProviders)-1 {
+			m.subProviderCursor++
+		}
+	case "k", "up":
+		if m.subProviderCursor > 0 {
+			m.subProviderCursor--
+		}
+	case "enter":
+		return nextStepCmd(m.storeCurrentSubProvider(m.subProviderCursor))
 	}
 
 	return nil
@@ -259,7 +296,18 @@ func (m *Model) goBack() tea.Cmd {
 		return nextStepCmd(StepSystemInfo)
 	case StepProviderSelect:
 		return nextStepCmd(StepAIDetect)
+	case StepSubProviderSelect:
+		m.activeSubProvider = ""
+		m.modelOptions = nil
+		m.modelsDetected = false
+		return nextStepCmd(StepProviderSelect)
 	case StepModelSelect:
+		if strings.TrimSpace(m.activeSubProvider) != "" {
+			m.activeSubProvider = ""
+			m.modelOptions = nil
+			m.modelsDetected = true
+			return nextStepCmd(StepSubProviderSelect)
+		}
 		return nextStepCmd(StepProviderSelect)
 	case StepPatterns:
 		if m.activeModelProvider >= 0 {
@@ -287,6 +335,14 @@ func (m *Model) enterStep(step Step) []tea.Cmd {
 		if !ok || !p.NeedsModel {
 			return []tea.Cmd{nextStepCmd(StepPatterns)}
 		}
+		if strings.TrimSpace(m.activeSubProvider) != "" {
+			if subProvider, ok := m.activeSubProviderInfo(); ok {
+				m.modelOptions = append([]string(nil), subProvider.Models...)
+				m.modelsDetected = true
+				m.textInput.SetValue("")
+				return nil
+			}
+		}
 		if existing := strings.TrimSpace(m.selectedProviderModel[idx]); existing != "" {
 			m.selectedModel = existing
 			m.modelOptions = append([]string(nil), p.Models...)
@@ -300,6 +356,9 @@ func (m *Model) enterStep(step Step) []tea.Cmd {
 			return nil
 		}
 		return []tea.Cmd{discoverModelsCmd(p.Name)}
+	case StepSubProviderSelect:
+		m.modelsDetected = true
+		return nil
 	case StepPatterns:
 		return []tea.Cmd{m.focusPatternField()}
 	case StepAgentsMd:

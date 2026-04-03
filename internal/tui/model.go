@@ -37,12 +37,15 @@ type Model struct {
 
 	welcomeCursor         int
 	providerCursor        int
+	subProviderCursor     int
 	modelCursor           int
 	rulesCursor           int
 	patternField          int
 	selectedProvider      int
 	activeModelProvider   int
+	activeSubProvider     string
 	selectedModel         string
+	subProviders          []detect.SubProvider
 	modelOptions          []string
 	includePatterns       []string
 	excludePatterns       []string
@@ -158,6 +161,8 @@ func (m Model) View() string {
 		return m.viewAIDetect()
 	case StepProviderSelect:
 		return m.viewProviderSelect()
+	case StepSubProviderSelect:
+		return m.viewSubProviderSelect()
 	case StepModelSelect:
 		return m.viewModelSelect()
 	case StepPatterns:

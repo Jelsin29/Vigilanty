@@ -5,19 +5,30 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 )
 
-type ProviderInfo struct {
+type SubProvider struct {
 	Name       string
-	Binary     string
-	Found      bool
-	NeedsModel bool
+	ID         string
 	Models     []string
-	InstallURL string
+	ModelCount int
+}
+
+type ProviderInfo struct {
+	Name         string
+	Binary       string
+	Found        bool
+	NeedsModel   bool
+	Models       []string
+	SubProviders []SubProvider
+	InstallURL   string
 }
 
 type providerSpec struct {
@@ -31,7 +42,25 @@ var (
 	errExecNotFound    = exec.ErrNotFound
 	realCommandContext = exec.CommandContext
 	lmstudioModelsURL  = "http://localhost:1234/v1/models"
+	opencodeCachePath  = DefaultOpencodeCachePath
+	opencodeAuthPath   = DefaultOpencodeAuthPath
 )
+
+func DefaultOpencodeCachePath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".cache", "opencode", "models.json")
+}
+
+func DefaultOpencodeAuthPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".local", "share", "opencode", "auth.json")
+}
 
 func DetectProviders(ctx context.Context) []ProviderInfo {
 	pctx, cancel := context.WithTimeout(ctx, 3*time.Second)
@@ -39,7 +68,7 @@ func DetectProviders(ctx context.Context) []ProviderInfo {
 
 	specs := []providerSpec{
 		{Name: "claude", Binary: "claude", NeedsModel: false, InstallURL: "https://docs.anthropic.com/en/docs/claude-code"},
-		{Name: "gemini", Binary: "gemini", NeedsModel: true, InstallURL: "https://github.com/google-gemini/gemini-cli"},
+		{Name: "gemini", Binary: "gemini", NeedsModel: false, InstallURL: "https://github.com/google-gemini/gemini-cli"},
 		{Name: "ollama", Binary: "ollama", NeedsModel: true, InstallURL: "https://ollama.com/download"},
 		{Name: "codex", Binary: "codex", NeedsModel: false, InstallURL: "https://github.com/openai/codex"},
 		{Name: "opencode", Binary: "opencode", NeedsModel: true, InstallURL: "https://opencode.ai"},
@@ -77,7 +106,10 @@ func DetectProviders(ctx context.Context) []ProviderInfo {
 			continue
 		}
 		if provider.Found && provider.NeedsModel {
-			provider.Models = DiscoverModels(pctx, provider.Name)
+			provider.SubProviders = DiscoverSubProviders(pctx, provider.Name)
+			if len(provider.SubProviders) == 0 {
+				provider.Models = DiscoverModels(pctx, provider.Name)
+			}
 		}
 		providers = append(providers, provider)
 	}
@@ -140,13 +172,26 @@ func detectLMStudioProvider(ctx context.Context) ProviderInfo {
 }
 
 func discoverOllamaModels(ctx context.Context) []string {
-	if ctx.Err() != nil {
+	subProviders := discoverOllamaSubProviders(ctx)
+	if len(subProviders) == 0 {
 		return []string{}
+	}
+
+	models := make([]string, 0)
+	for _, subProvider := range subProviders {
+		models = append(models, subProvider.Models...)
+	}
+	return models
+}
+
+func discoverOllamaSubProviders(ctx context.Context) []SubProvider {
+	if ctx.Err() != nil {
+		return []SubProvider{}
 	}
 
 	path, err := lookPath("ollama")
 	if err != nil {
-		return []string{}
+		return []SubProvider{}
 	}
 
 	octx, cancel := context.WithTimeout(ctx, 3*time.Second)
@@ -155,10 +200,10 @@ func discoverOllamaModels(ctx context.Context) []string {
 	cmd := commandContext(octx, path, "list")
 	out, err := cmd.Output()
 	if err != nil {
-		return []string{}
+		return []SubProvider{}
 	}
 
-	models := make([]string, 0)
+	families := make(map[string][]string)
 	s := bufio.NewScanner(strings.NewReader(string(out)))
 	first := true
 	for s.Scan() {
@@ -171,14 +216,37 @@ func discoverOllamaModels(ctx context.Context) []string {
 		if len(fields) == 0 {
 			continue
 		}
-		models = append(models, fields[0])
+		model := fields[0]
+		family := model
+		if cut := strings.Index(model, ":"); cut >= 0 {
+			family = model[:cut]
+		}
+		families[family] = append(families[family], model)
 	}
 
 	if err := s.Err(); err != nil {
-		return []string{}
+		return []SubProvider{}
 	}
 
-	return models
+	familyNames := make([]string, 0, len(families))
+	for family := range families {
+		familyNames = append(familyNames, family)
+	}
+	sort.Strings(familyNames)
+
+	subProviders := make([]SubProvider, 0, len(familyNames))
+	for _, family := range familyNames {
+		models := append([]string(nil), families[family]...)
+		sort.Strings(models)
+		subProviders = append(subProviders, SubProvider{
+			Name:       family,
+			ID:         family,
+			Models:     models,
+			ModelCount: len(models),
+		})
+	}
+
+	return subProviders
 }
 
 func discoverLMStudioModels(ctx context.Context) []string {
@@ -248,8 +316,166 @@ func hasGHCopilotExtension(ctx context.Context, binary string) bool {
 	return false
 }
 
-func DiscoverModels(ctx context.Context, provider string) []string {
+func discoverGHModels() []string {
+	return []string{
+		"gpt-4o",
+		"gpt-4.1",
+		"claude-sonnet-4-20250514",
+		"o3-mini",
+	}
+}
+
+func discoverOpencodeSubProviders() []SubProvider {
+	cachePath := opencodeCachePath()
+	if strings.TrimSpace(cachePath) == "" {
+		return []SubProvider{}
+	}
+
+	content, err := os.ReadFile(cachePath)
+	if err != nil {
+		return []SubProvider{}
+	}
+
+	type opencodeModel struct {
+		ID       string `json:"id"`
+		ToolCall bool   `json:"tool_call"`
+	}
+
+	type opencodeProvider struct {
+		Name   string                   `json:"name"`
+		Env    []string                 `json:"env"`
+		Models map[string]opencodeModel `json:"models"`
+	}
+
+	providers := map[string]opencodeProvider{}
+	if err := json.Unmarshal(content, &providers); err != nil {
+		return []SubProvider{}
+	}
+
+	authenticated := loadOpencodeAuthenticatedProviders()
+	subProviders := make([]SubProvider, 0, len(providers))
+	for id, provider := range providers {
+		if !opencodeProviderAvailable(id, provider.Env, authenticated) {
+			continue
+		}
+
+		models := make([]string, 0, len(provider.Models))
+		for key, model := range provider.Models {
+			if !model.ToolCall {
+				continue
+			}
+			modelID := strings.TrimSpace(model.ID)
+			if modelID == "" {
+				modelID = strings.TrimSpace(key)
+			}
+			if modelID == "" {
+				continue
+			}
+			models = append(models, modelID)
+		}
+		if len(models) == 0 {
+			continue
+		}
+
+		sort.Strings(models)
+		name := strings.TrimSpace(provider.Name)
+		if name == "" {
+			name = strings.TrimSpace(id)
+		}
+		subProviders = append(subProviders, SubProvider{
+			Name:       name,
+			ID:         strings.TrimSpace(id),
+			Models:     models,
+			ModelCount: len(models),
+		})
+	}
+
+	sort.Slice(subProviders, func(i, j int) bool {
+		return strings.ToLower(subProviders[i].Name) < strings.ToLower(subProviders[j].Name)
+	})
+
+	return subProviders
+}
+
+func loadOpencodeAuthenticatedProviders() map[string]struct{} {
+	authPath := opencodeAuthPath()
+	if strings.TrimSpace(authPath) == "" {
+		return map[string]struct{}{}
+	}
+
+	content, err := os.ReadFile(authPath)
+	if err != nil {
+		return map[string]struct{}{}
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(content, &raw); err != nil {
+		return map[string]struct{}{}
+	}
+
+	providers := map[string]struct{}{}
+	if nested, ok := raw["providers"]; ok {
+		var nestedProviders map[string]json.RawMessage
+		if err := json.Unmarshal(nested, &nestedProviders); err == nil {
+			for id := range nestedProviders {
+				providers[strings.TrimSpace(id)] = struct{}{}
+			}
+			return providers
+		}
+	}
+
+	for id := range raw {
+		trimmed := strings.TrimSpace(id)
+		if trimmed == "" || trimmed == "providers" {
+			continue
+		}
+		providers[trimmed] = struct{}{}
+	}
+
+	return providers
+}
+
+func opencodeProviderAvailable(id string, envVars []string, authenticated map[string]struct{}) bool {
+	if strings.EqualFold(strings.TrimSpace(id), "opencode") {
+		return true
+	}
+	if _, ok := authenticated[strings.TrimSpace(id)]; ok {
+		return true
+	}
+	if len(envVars) == 0 {
+		return false
+	}
+	for _, name := range envVars {
+		if strings.TrimSpace(os.Getenv(name)) == "" {
+			return false
+		}
+	}
+	return true
+}
+
+func DiscoverSubProviders(ctx context.Context, provider string) []SubProvider {
+	if ctx.Err() != nil {
+		return []SubProvider{}
+	}
+
 	switch strings.TrimSpace(strings.ToLower(provider)) {
+	case "opencode":
+		return discoverOpencodeSubProviders()
+	case "ollama":
+		return discoverOllamaSubProviders(ctx)
+	default:
+		return []SubProvider{}
+	}
+}
+
+func DiscoverModels(ctx context.Context, provider string) []string {
+	if ctx.Err() != nil {
+		return []string{}
+	}
+
+	switch strings.TrimSpace(strings.ToLower(provider)) {
+	case "gh":
+		return discoverGHModels()
 	case "ollama":
 		return discoverOllamaModels(ctx)
 	case "lmstudio":
