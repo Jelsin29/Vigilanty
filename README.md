@@ -7,51 +7,70 @@
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License" />
   <img src="https://img.shields.io/badge/go-1.22.2-00ADD8?logo=go" alt="Go Version" />
   <img src="https://img.shields.io/badge/platforms-linux%20%7C%20macOS%20%7C%20windows-lightgrey" alt="Platforms" />
-  <img src="https://img.shields.io/badge/PRs-welcome-brightgreen" alt="PRs Welcome" />
-  <img src="https://img.shields.io/badge/tests-passing-brightgreen" alt="Tests" />
+  <img src="https://img.shields.io/badge/CI-JSON%20ready-brightgreen" alt="CI JSON Ready" />
 </p>
 
-# Vigilanty — Your commits, verified
+# Vigilanty
 
-Vigilanty runs a configurable pre-commit verification pipeline for staged changes, combining shell-based checks and AI review in a single CLI.
+**Vigilanty is a pre-commit verification hub**: one CLI that runs shell checks, staged-diff analysis, and AI review before bad changes leave your machine or your CI pipeline.
 
-## Why
+## Why Vigilanty
 
-Modern commits often pass through too many disconnected tools:
+Most teams still glue verification together with separate linters, test runners, hooks, CI jobs, and ad-hoc AI prompts.
 
-| Problem | What Vigilanty does |
+Vigilanty gives you one pipeline for all of that:
+
+- **Shell checks** for lint, build, test, security, formatting, or custom scripts
+- **AI review** as a first-class pipeline step, not a separate ritual
+- **Repo-local config** in `.vigilanty.yml`
+- **Project auto-detection** during `vigilanty init`
+- **Human-friendly local output** by default
+- **Stable `--json` output** for CI and automation
+
+## Differential Positioning
+
+Vigilanty is strongest when you need a tool that is:
+
+| Capability | Vigilanty stance |
 | --- | --- |
-| Commits go unchecked until CI | Runs checks before the commit is created |
-| AI-generated code still needs verification | Adds AI review as a pipeline step, not a separate manual ritual |
-| Linters, builds, tests, and review live in different tools | Centralizes them in one ordered pipeline |
-| Teams want repo-local rules | Stores the workflow in `.vigilanty.yml` |
+| Verification workflow | A **hub** that orchestrates multiple checks in order |
+| AI integration | **Provider-agnostic bridge** across Claude, Gemini, Codex, OpenCode, Ollama, LM Studio, and GitHub |
+| Setup | **Zero-friction onboarding** with presets and project detection |
+| Git scope | Supports **staged**, **PR**, and **CI last-commit** review modes |
+| Automation | Explicit **machine-readable JSON contract** with unchanged human default output |
 
 ## How it works
 
 ```text
-staged git changes
-        |
-        v
-  vigilanty run
-        |
-        v
-+-------------------------------+
-| verification pipeline         |
-|-------------------------------|
-| 1. lint                       |
-| 2. build                      |
-| 3. test                       |
-| 4. AI review                  |
-+-------------------------------+
-        |
-        +--> all pass  -> commit continues
-        |
-        +--> one fails -> commit blocked
+staged changes / PR diff / CI commit diff
+                  |
+                  v
+            vigilanty run
+                  |
+                  v
+      +---------------------------+
+      | verification pipeline     |
+      |---------------------------|
+      | 1. lint / format          |
+      | 2. build / typecheck      |
+      | 3. test / security        |
+      | 4. AI review              |
+      +---------------------------+
+                  |
+          +-------+-------+
+          |               |
+          v               v
+       pass           fail / error
+   exit code 0        exit code 1
 ```
 
-Vigilanty reads the staged diff, executes steps sequentially, and returns a non-zero exit code when the pipeline fails.
-
 ## Installation
+
+### Homebrew
+
+```bash
+brew install Jelsin29/tap/vigilanty
+```
 
 ### Go install
 
@@ -59,25 +78,19 @@ Vigilanty reads the staged diff, executes steps sequentially, and returns a non-
 go install github.com/jelsin29/vigilanty@v0.2.0
 ```
 
-### Binary Install 
-#### Linux
+### Linux quick install
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Jelsin29/Vigilanty/main/scripts/autoinstall.sh | bash
 ```
 
-OR Install a specific version:
+Specific version:
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Jelsin29/Vigilanty/main/scripts/autoinstall.sh | VIGILANTY_VERSION=v0.2.0 bash
 ```
 
-### Homebrew (recommended)
-
-```bash
-brew install Jelsin29/tap/vigilanty
-```
-
-
-### Build from source
+### From source
 
 ```bash
 git clone https://github.com/Jelsin29/Vigilanty.git vigilanty
@@ -86,26 +99,140 @@ make build
 ./vigilanty version
 ```
 
-## Quick Start
+## Quick start
 
 ```bash
-# 1) Enter your repository
-cd /path/to/your/repo
-
-# 2) Launch the interactive setup wizard
+cd /path/to/repo
 vigilanty init
-
-# 3) Install the git pre-commit hook
 vigilanty install
-
-# 4) You're done — every commit now runs the pipeline automatically
+vigilanty run
 ```
 
-The TUI wizard detects your system tools and AI providers, lets you select which ones to use, and generates `.vigilanty.yml` for you. You can also skip the wizard with `vigilanty init --preset go`.
+For CI or scripts:
 
-## Configuration
+```bash
+vigilanty run --json
+```
 
-Example `.vigilanty.yml`:
+## Commands
+
+See the full command reference in [`docs/cli.md`](docs/cli.md).
+
+Core commands:
+
+- `vigilanty init`
+- `vigilanty run`
+- `vigilanty install`
+- `vigilanty uninstall`
+- `vigilanty cache status`
+- `vigilanty cache clear`
+- `vigilanty config`
+- `vigilanty version`
+
+## Run modes
+
+| Mode | Command | Input |
+| --- | --- | --- |
+| Local staged review | `vigilanty run` | staged diff |
+| PR review | `vigilanty run --pr-mode --base main` | diff vs base branch |
+| CI review | `vigilanty run --ci` | last commit diff |
+| Machine-readable CI | `vigilanty run --json` | staged diff as JSON |
+
+JSON output details live in [`docs/run-json.md`](docs/run-json.md).
+
+## Providers
+
+Vigilanty currently supports these AI providers:
+
+| Provider | Notes |
+| --- | --- |
+| `claude` | Anthropic Claude CLI |
+| `gemini` | Gemini CLI |
+| `codex` | OpenAI Codex CLI |
+| `opencode` | SST OpenCode CLI |
+| `ollama` | Local Ollama models; `model` required |
+| `lmstudio` | LM Studio local model runtime |
+| `github` | GitHub CLI / Copilot-backed workflows |
+
+Example Ollama step:
+
+```yaml
+- name: ai-review
+  checker: ai-review
+  provider: ollama
+  model: llama3.1
+  prompt: "Review this diff for bugs and maintainability issues."
+```
+
+Provider setup guidance and JSON examples are documented in [`docs/cli.md`](docs/cli.md).
+
+## Presets
+
+`vigilanty init --preset <name>` scaffolds starter pipelines for **11 presets**:
+
+| Preset | Typical steps |
+| --- | --- |
+| `go` | `golangci-lint`, `go build`, `go test`, AI review |
+| `node` | `npm run lint`, `npm run typecheck`, `npm test`, AI review |
+| `typescript` | `npx tsc --noEmit`, `npx eslint .`, `npm test`, AI review |
+| `python` | `ruff`, `pytest`, AI review |
+| `rust` | `cargo clippy`, `cargo build`, `cargo test`, AI review |
+| `java` | `mvn compile`/`gradle build`, `mvn test`/`gradle test`, AI review |
+| `dotnet` | `dotnet build`, `dotnet test`, AI review |
+| `ruby` | `rubocop`, `rspec`, AI review |
+| `swift` | `swift build`, `swift test`, AI review |
+| `php` | `phpstan`, `phpunit`, AI review |
+| `generic` | AI review starter with commented shell examples |
+
+## CI integration
+
+### GitHub Actions
+
+```yaml
+name: vigilanty
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - run: go install github.com/jelsin29/vigilanty@v0.2.0
+      - run: vigilanty init --preset go --no-interactive --force
+      - run: vigilanty run --ci --json > vigilanty-report.json
+```
+
+### GitLab CI
+
+```yaml
+stages:
+  - verify
+
+vigilanty:
+  stage: verify
+  image: golang:1.22
+  script:
+    - go install github.com/jelsin29/vigilanty@v0.2.0
+    - vigilanty init --preset go --no-interactive --force
+    - vigilanty run --ci --json > vigilanty-report.json
+  artifacts:
+    when: always
+    paths:
+      - vigilanty-report.json
+```
+
+## Example config
 
 ```yaml
 version: "1"
@@ -122,120 +249,39 @@ pipeline:
     command: "golangci-lint run ./..."
     timeout: "120s"
 
-  - name: build
-    checker: shell
-    command: "go build ./..."
-
   - name: test
     checker: shell
     command: "go test ./..."
+    timeout: "120s"
 
   - name: ai-review
     checker: ai-review
     provider: claude
-    prompt: "Review this Go diff for bugs, security issues, performance regressions, and maintainability concerns. Reply with PASS if the changes look good, or FAIL followed by your findings."
+    rules_file: "AGENTS.md"
+    prompt: "Review this diff for bugs, maintainability issues, and security risks."
     timeout: "120s"
     max_diff_lines: 500
     skip_on_empty_diff: true
 ```
 
-### Top-level fields
-
-| Field | Required | Description |
-| --- | --- | --- |
-| `version` | No | Config schema version. Current supported value is `"1"`. |
-| `global.fail_fast` | No | Stops at the first failed or errored step. |
-| `global.diff_max_bytes` | No | Maximum staged diff size read before truncation. Default: `262144`. |
-| `global.timeout` | No | Default timeout applied to steps that do not define their own timeout. Default: `2m`. |
-| `global.verbose` | No | Prints all checker output, not only failures. |
-| `pipeline` | Yes | Ordered list of steps to run. |
-
-### Pipeline step fields
-
-| Field | Required | Description |
-| --- | --- | --- |
-| `name` | Yes | Unique step name shown in output. |
-| `checker` | Yes | Checker type. Common values: `shell`, `ai-review`. |
-| `command` | For `shell` | Command executed in the repository root. |
-| `provider` | For `ai-review` | AI CLI to use: `claude`, `gemini`, `codex`, `opencode`, `ollama`, `lmstudio`, or `github`. |
-| `prompt` | For `ai-review` | Review instructions sent together with the staged diff. |
-| `model` | For `ollama` | Model name required by the Ollama provider. |
-| `timeout` | No | Step-specific timeout such as `60s` or `2m`. |
-| `enabled` | No | Set to `false` to skip a step without deleting it. |
-| `env` | No | Environment variables for shell-based steps. |
-| `skip_on_empty_diff` | No | Skips AI review when nothing is staged. |
-| `max_diff_lines` | No | Limits how many diff lines are sent to the AI reviewer. |
-| `pass_pattern` | No | Regex used to detect a passing AI response. |
-| `fail_pattern` | No | Regex used to detect a failing AI response. |
-| `config` | No | Extra checker-specific options. |
-
-## Presets
-
-Use `vigilanty init --preset <name>` to scaffold a starting config.
-
-| Preset | Command | Includes |
-| --- | --- | --- |
-| Go | `vigilanty init --preset go` | `golangci-lint`, `go build`, `go test`, AI review |
-| Node | `vigilanty init --preset node` | `npm run lint`, `npm run typecheck`, `npm test`, AI review |
-| Python | `vigilanty init --preset python` | `ruff`, `pytest`, AI review |
-| Generic | `vigilanty init --preset generic` | AI review with commented shell examples |
-
-## Providers
-
-Supported AI CLI providers:
-
-| Provider | Install | Notes |
-| --- | --- | --- |
-| `claude` | https://docs.anthropic.com/en/docs/claude-code | Uses the local Claude CLI |
-| `gemini` | https://github.com/google-gemini/gemini-cli | Uses the Gemini CLI with prompt input |
-| `codex` | https://platform.openai.com/docs/codex/cli | OpenAI Codex CLI |
-| `opencode` | https://github.com/sst/opencode | Prompt passed as positional arg, supports `model` field |
-| `ollama` | https://ollama.ai/download | Requires `model` in config |
-| `lmstudio` | https://lmstudio.ai/ | Local model server |
-| `github` | https://cli.github.com/ | GitHub Copilot models via `gh` CLI |
-
-If the selected CLI is not installed, Vigilanty fails the step and prints the provider install URL.
-
-## Commands
-
-| Command | Description |
-| --- | --- |
-| `vigilanty init` | Create `.vigilanty.yml` in the current repository |
-| `vigilanty init --preset go` | Create config from a Go-focused preset |
-| `vigilanty install` | Install the `pre-commit` git hook |
-| `vigilanty uninstall` | Remove the installed git hook |
-| `vigilanty run` | Execute the verification pipeline for staged changes |
-| `vigilanty version` | Print the current version |
-| `vigilanty --config /path/to/config.yml run` | Use an explicit config file |
-| `vigilanty --verbose run` | Print verbose checker output |
-
-## Pipeline behavior
-
-| Behavior | Details |
-| --- | --- |
-| Execution model | Steps run sequentially in the order defined in `pipeline` |
-| Fail-fast | When `global.fail_fast: true`, remaining steps are marked as skipped after the first failure or error |
-| Git input | The pipeline evaluates staged files and the staged diff |
-| Empty pipeline | Prints a warning and exits successfully |
-| AI diff handling | Diff bytes are capped globally and AI review lines can be capped per step |
-
-### Exit codes
+## Exit codes
 
 | Code | Meaning |
 | --- | --- |
 | `0` | Pipeline passed |
-| `1` | Checker failure or general command failure |
+| `1` | Pipeline failed |
 | `2` | Configuration error |
 | `3` | Git error |
 | `4` | Internal error |
 
+## Documentation map
+
+- [`docs/cli.md`](docs/cli.md) — canonical CLI reference
+- [`docs/run-json.md`](docs/run-json.md) — `--json` schema and compatibility rules
+
 ## Contributing
 
-PRs are welcome.
-
-- Open an issue: https://github.com/Jelsin29/Vigilanty/issues
-- Discuss a change before large work
-- Keep contributions focused and documented
+PRs are welcome. Open an issue for large changes first.
 
 ## License
 

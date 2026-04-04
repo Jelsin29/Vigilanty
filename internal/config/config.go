@@ -88,6 +88,29 @@ func Load(path string) (*Config, error) {
 	return cfg, nil
 }
 
+func LoadFromReader(reader io.Reader) (*Config, error) {
+	if reader == nil {
+		return nil, errors.New("load config: reader is required")
+	}
+
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("read config: %w", err)
+	}
+
+	cfg, err := decodeConfig(data)
+	if err != nil {
+		return nil, fmt.Errorf("parse config: %w", err)
+	}
+
+	applyDefaults(cfg)
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("validate config: %w", err)
+	}
+
+	return cfg, nil
+}
+
 func LoadWithDefaults() (*Config, error) {
 	defaultPath := filepath.Join(".vigilanty.yml")
 	if _, err := os.Stat(defaultPath); err == nil {

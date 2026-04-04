@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -58,6 +59,10 @@ func newInitCommand() *cobra.Command {
 				return newExitError(1, "%s", errorText(fmt.Sprintf("error: %v", err)))
 			}
 
+			if err := printPresetPreview(os.Stdout, selectedPreset, content); err != nil {
+				return newExitError(1, "%s", errorText(fmt.Sprintf("error: %v", err)))
+			}
+
 			if _, err := os.Stat(configPath); err == nil {
 				if !force {
 					confirmed, confirmErr := confirmOverwrite(configPath)
@@ -101,10 +106,7 @@ func newInitCommand() *cobra.Command {
 			}
 
 			fmt.Fprintf(os.Stdout, "%s\n", successText("Created .vigilanty.yml"))
-			fmt.Fprintf(os.Stdout, "Next steps:\n")
-			fmt.Fprintf(os.Stdout, "  1. Edit .vigilanty.yml to define your pipeline\n")
-			fmt.Fprintf(os.Stdout, "  2. Run 'vigilanty install' to add the pre-commit hook\n")
-			fmt.Fprintf(os.Stdout, "  3. Run 'vigilanty run' to verify the current staged changes\n")
+			printInitNextSteps(os.Stdout)
 			return nil
 		},
 	}
@@ -113,6 +115,67 @@ func newInitCommand() *cobra.Command {
 	command.Flags().BoolVar(&noInteractive, "no-interactive", false, "Skip the interactive setup wizard")
 	command.Flags().StringVar(&preset, "preset", "", "Scaffold template preset: go, node, typescript, python, rust, java, dotnet, ruby, swift, php, generic")
 	return command
+}
+
+func printPresetPreview(out io.Writer, preset string, content string) error {
+	cfg, err := config.LoadFromReader(strings.NewReader(content))
+	if err != nil {
+		return fmt.Errorf("parse generated preset: %w", err)
+	}
+
+	presetName := strings.TrimSpace(preset)
+	if presetName == "" {
+		presetName = detectProjectTypeName(content, cfg)
+	}
+
+	steps := make([]string, 0, len(cfg.Pipeline))
+	for _, step := range cfg.Pipeline {
+		label := step.Name
+		if strings.TrimSpace(step.Command) != "" {
+			label = fmt.Sprintf("%s — %s", step.Name, step.Command)
+		} else if pipeline := strings.TrimSpace(step.Provider); pipeline != "" {
+			label = fmt.Sprintf("%s — %s", step.Name, pipeline)
+		}
+		steps = append(steps, label)
+	}
+
+	fmt.Fprintf(out, "Preset preview (%s):\n", presetName)
+	for _, step := range steps {
+		fmt.Fprintf(out, "  - %s\n", step)
+	}
+	fmt.Fprintln(out)
+	return nil
+}
+
+func detectProjectTypeName(content string, cfg *config.Config) string {
+	if cfg == nil {
+		return "detected"
+	}
+
+	for _, step := range cfg.Pipeline {
+		switch step.Name {
+		case "golangci-lint":
+			return "go"
+		case "eslint":
+			return "node"
+		case "ruff":
+			return "python"
+		}
+	}
+
+	if strings.TrimSpace(content) == "" {
+		return "detected"
+	}
+
+	return "detected"
+}
+
+func printInitNextSteps(out io.Writer) {
+	fmt.Fprintf(out, "Next Steps:\n")
+	fmt.Fprintf(out, "  1. Review .vigilanty.yml and adjust the generated steps if needed\n")
+	fmt.Fprintf(out, "  2. Run 'vigilanty install' to add the pre-commit hook\n")
+	fmt.Fprintf(out, "  3. Run 'vigilanty run' to verify your current staged changes\n")
+	fmt.Fprintf(out, "  4. Use 'vigilanty run --json' when you need machine-readable CI output\n")
 }
 
 func detectProjectType() string {

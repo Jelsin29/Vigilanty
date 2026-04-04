@@ -25,6 +25,7 @@ var rootCmd = &cobra.Command{
 	Short:             "Vigilanty runs configurable verification pipelines",
 	Long:              "Vigilanty is a configurable pre-commit verification CLI for staged changes.",
 	Version:           Version,
+	SilenceErrors:     true,
 	SilenceUsage:      true,
 	CompletionOptions: cobra.CompletionOptions{DisableDefaultCmd: true},
 	RunE: func(cmd *cobra.Command, args []string) error {

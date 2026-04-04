@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -21,6 +22,7 @@ func newRunCommand() *cobra.Command {
 	var prMode bool
 	var baseBranch string
 	var ciMode bool
+	var jsonMode bool
 
 	command := &cobra.Command{
 		Use:   "run",
@@ -51,7 +53,7 @@ func newRunCommand() *cobra.Command {
 				cfg.Global.Verbose = true
 			}
 
-			if ui.StdoutIsTTY() {
+			if ui.StdoutIsTTY() && !ciMode && !jsonMode {
 				printRunBanner(cfg, noCache)
 			}
 
@@ -60,7 +62,7 @@ func newRunCommand() *cobra.Command {
 				defer ui.SetColorsEnabled(true)
 			}
 
-			if ciMode {
+			if ciMode && !jsonMode {
 				if ciName, detected := gitpkg.DetectCI(); detected {
 					fmt.Fprintf(os.Stdout, "Running in CI mode (%s detected)\n", ciName)
 				}
@@ -71,11 +73,14 @@ func newRunCommand() *cobra.Command {
 				return err
 			}
 
-			if truncated {
+			if truncated && !jsonMode {
 				fmt.Fprintf(os.Stdout, "%s\n", warningText(fmt.Sprintf("warning: diff exceeded %d bytes and was truncated", cfg.Global.DiffMaxBytes)))
 			}
 
 			if len(cfg.Pipeline) == 0 {
+				if jsonMode {
+					return writeJSONResult(pipeline.PipelineResult{Passed: true}, pipeline.RunJSONMeta{Mode: runMode(prMode, ciMode), TruncatedDiff: truncated})
+				}
 				fmt.Fprintf(os.Stdout, "%s\n", warningText("warning: pipeline is empty. Add steps to .vigilanty.yml and run again."))
 				return nil
 			}
@@ -86,16 +91,15 @@ func newRunCommand() *cobra.Command {
 				StagedFiles: changedFiles,
 			}
 
-			runMode := "staged"
-			if prMode {
-				runMode = "pr"
-			} else if ciMode {
-				runMode = "ci"
-			}
+			runMode := runMode(prMode, ciMode)
 
-			pipe := pipeline.New(cfg, pipeline.Options{NoCache: noCache, Mode: runMode})
+			pipe := pipeline.New(cfg, pipeline.Options{NoCache: noCache, Mode: runMode, Quiet: jsonMode || ciMode})
 			result := pipe.Run(checkCtx)
-			if result.LiveOutputted {
+			if jsonMode {
+				if err := writeJSONResult(result, pipeline.RunJSONMeta{Mode: runMode, Files: changedFiles, TruncatedDiff: truncated}); err != nil {
+					return newExitError(ExitInternalError, "%s", errorText(fmt.Sprintf("error: failed to encode JSON result: %v", err)))
+				}
+			} else if result.LiveOutputted {
 				fmt.Fprintf(os.Stdout, "%s\n", pipeline.FormatSummary(result))
 			} else {
 				fmt.Fprintf(os.Stdout, "%s\n", pipeline.FormatOutput(result, cfg.Global.Verbose))
@@ -113,7 +117,33 @@ func newRunCommand() *cobra.Command {
 	command.Flags().BoolVar(&prMode, "pr-mode", false, "Review full PR diff against base branch")
 	command.Flags().StringVar(&baseBranch, "base", "", "Base branch for PR mode (default: auto-detect main/master)")
 	command.Flags().BoolVar(&ciMode, "ci", false, "Review last commit changes (CI/CD mode)")
+	command.Flags().BoolVar(&jsonMode, "json", false, "Print stable JSON output for CI/automation")
 	return command
+}
+
+func runMode(prMode bool, ciMode bool) string {
+	if prMode {
+		return "pr"
+	}
+	if ciMode {
+		return "ci"
+	}
+	return "staged"
+}
+
+func writeJSONResult(result pipeline.PipelineResult, meta pipeline.RunJSONMeta) error {
+	payload, err := pipeline.JSONResult(result, meta)
+	if err != nil {
+		return err
+	}
+
+	var parsed json.RawMessage
+	if err := json.Unmarshal(payload, &parsed); err != nil {
+		return err
+	}
+
+	_, err = os.Stdout.Write(append(payload, '\n'))
+	return err
 }
 
 func printRunBanner(cfg *config.Config, noCache bool) {

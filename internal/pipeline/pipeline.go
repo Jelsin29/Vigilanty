@@ -18,11 +18,13 @@ type Pipeline struct {
 	verbose  bool
 	noCache  bool
 	mode     string
+	quiet    bool
 }
 
 type Options struct {
 	NoCache bool
 	Mode    string
+	Quiet   bool
 }
 
 func New(cfg *config.Config, options Options) *Pipeline {
@@ -39,6 +41,7 @@ func New(cfg *config.Config, options Options) *Pipeline {
 		verbose:  cfg.Global.Verbose,
 		noCache:  options.NoCache,
 		mode:     options.Mode,
+		quiet:    options.Quiet,
 	}
 }
 
@@ -48,7 +51,7 @@ func (p *Pipeline) Run(ctx checker.CheckContext) PipelineResult {
 		Results: make([]StepResult, 0, len(p.steps)),
 		Passed:  true,
 	}
-	liveOutputEnabled := true // spinners and AI review sections output live in all modes
+	liveOutputEnabled := !p.quiet
 
 	projectCache, cacheEnabled, filesHash := p.loadCache(ctx)
 
@@ -67,8 +70,10 @@ func (p *Pipeline) Run(ctx checker.CheckContext) PipelineResult {
 				},
 			}
 			result.Results = append(result.Results, stepResult)
-			printLiveStepResult(stepResult)
-			result.LiveOutputted = result.LiveOutputted || liveOutputEnabled
+			if liveOutputEnabled {
+				printLiveStepResult(stepResult)
+				result.LiveOutputted = true
+			}
 			continue
 		}
 
@@ -89,20 +94,22 @@ func (p *Pipeline) Run(ctx checker.CheckContext) PipelineResult {
 					Result:   checker.CheckResult{Status: checker.Passed},
 				}
 				result.Results = append(result.Results, stepResult)
-				printLiveStepResult(stepResult)
-				result.LiveOutputted = result.LiveOutputted || liveOutputEnabled
+				if liveOutputEnabled {
+					printLiveStepResult(stepResult)
+					result.LiveOutputted = true
+				}
 				continue
 			}
 		}
 
-		ttyAIReview := ui.StdoutIsTTY() && isAIReview(step)
+		ttyAIReview := liveOutputEnabled && ui.StdoutIsTTY() && isAIReview(step)
 
 		if ttyAIReview {
 			printAIReviewStart(step, ctx.StagedFiles)
 		}
 
 		var spinner *ui.Spinner
-		if !ttyAIReview {
+		if liveOutputEnabled && !ttyAIReview {
 			spinner = ui.NewSpinner(step.Name)
 			spinner.Start()
 		}
@@ -129,7 +136,9 @@ func (p *Pipeline) Run(ctx checker.CheckContext) PipelineResult {
 			if spinner != nil {
 				spinner.Stop(statusIcon(stepResult.Result.Status))
 			}
-			result.LiveOutputted = result.LiveOutputted || liveOutputEnabled
+			if liveOutputEnabled {
+				result.LiveOutputted = true
+			}
 			result.Results = append(result.Results, stepResult)
 			result.Passed = false
 			if p.failFast {
@@ -146,7 +155,9 @@ func (p *Pipeline) Run(ctx checker.CheckContext) PipelineResult {
 		if spinner != nil {
 			spinner.Stop(statusIcon(checkResult.Status))
 		}
-		result.LiveOutputted = result.LiveOutputted || liveOutputEnabled
+		if liveOutputEnabled {
+			result.LiveOutputted = true
+		}
 
 		if ttyAIReview {
 			printAIReviewResult(checkResult)
@@ -480,8 +491,8 @@ func appendSkippedResults(result *PipelineResult, steps []config.StepConfig, sta
 			},
 		}
 		result.Results = append(result.Results, stepResult)
-		printLiveStepResult(stepResult)
 		if liveOutputEnabled {
+			printLiveStepResult(stepResult)
 			result.LiveOutputted = true
 		}
 	}
