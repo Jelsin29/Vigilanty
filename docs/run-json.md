@@ -2,6 +2,14 @@
 
 `--json` keeps the normal human-readable output untouched for default runs, but switches stdout to a stable JSON document for CI and automation.
 
+## See also
+
+- [README](../README.md)
+- [CLI reference](./cli.md)
+- [Integrations](./integrations.md)
+- [Examples](./examples.md)
+- [Troubleshooting](./troubleshooting.md)
+
 ## Compatibility rules
 
 - `schema_version` is currently `v1`
@@ -46,3 +54,9 @@
 ```
 
 The example above is intentionally the same shape used by the golden fixture in `internal/pipeline/testdata/run_json_golden.json`.
+
+## Recommended usage
+
+- Local terminal workflow: `vigilanty run`
+- CI workflow: `vigilanty run --ci --json`
+- PR diff automation: `vigilanty run --pr-mode --base main --json`

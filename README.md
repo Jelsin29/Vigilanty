@@ -114,6 +114,26 @@ For CI or scripts:
 vigilanty run --json
 ```
 
+## Interactive setup
+
+`vigilanty init` can auto-detect the project type, walk you through file scope, help choose an AI provider, and optionally generate `AGENTS.md` so your review rules start with real structure instead of an empty file.
+
+<p align="center">
+  <img width="1400" alt="Vigilanty interactive provider selection" src="https://github.com/user-attachments/assets/dbb63929-bc77-4b33-a476-e67f8c58f359" />
+</p>
+
+Want the full setup flow? See [`docs/providers.md`](docs/providers.md), [`docs/configuration.md`](docs/configuration.md), and [`docs/rules-file.md`](docs/rules-file.md).
+
+## Example output
+
+Default runs stay optimized for humans: you get a clear pipeline summary, step-by-step progress, and a direct pass/fail outcome without giving up the option to switch to JSON for CI.
+
+<p align="center">
+  <img width="404" height="1016" alt="Vigilanty successful run output" src="https://github.com/user-attachments/assets/fea85988-e32b-4aef-b133-bd7178f84249" />
+</p>
+
+For more real-world samples, including failure cases and JSON payloads, see [`docs/examples.md`](docs/examples.md) and [`docs/run-json.md`](docs/run-json.md).
+
 ## Commands
 
 See the full command reference in [`docs/cli.md`](docs/cli.md).
@@ -144,15 +164,15 @@ JSON output details live in [`docs/run-json.md`](docs/run-json.md).
 
 Vigilanty currently supports these AI providers:
 
-| Provider | Notes |
-| --- | --- |
-| `claude` | Anthropic Claude CLI |
-| `gemini` | Gemini CLI |
-| `codex` | OpenAI Codex CLI |
-| `opencode` | SST OpenCode CLI |
-| `ollama` | Local Ollama models; `model` required |
-| `lmstudio` | LM Studio local model runtime |
-| `github` | GitHub CLI / Copilot-backed workflows |
+| Provider | Model behavior | Notes |
+| --- | --- | --- |
+| `claude` | Usually no explicit model needed | Anthropic Claude CLI |
+| `gemini` | Optional in config, provider CLI decides actual model | Gemini CLI |
+| `codex` | Usually no explicit model needed | OpenAI Codex CLI |
+| `opencode` | Optional, passed with `--model` when set | SST OpenCode CLI |
+| `ollama` | **Required** | Local Ollama models |
+| `lmstudio` | Optional in config | LM Studio local runtime |
+| `github` | Optional in config | GitHub CLI / Copilot-backed workflows |
 
 Example Ollama step:
 
@@ -164,7 +184,7 @@ Example Ollama step:
   prompt: "Review this diff for bugs and maintainability issues."
 ```
 
-Provider setup guidance and JSON examples are documented in [`docs/cli.md`](docs/cli.md).
+Provider-specific setup guidance lives in [`docs/providers.md`](docs/providers.md).
 
 ## Presets
 
@@ -232,6 +252,8 @@ vigilanty:
       - vigilanty-report.json
 ```
 
+More integration patterns are documented in [`docs/integrations.md`](docs/integrations.md).
+
 ## Example config
 
 ```yaml
@@ -264,6 +286,8 @@ pipeline:
     skip_on_empty_diff: true
 ```
 
+Full config field guidance lives in [`docs/configuration.md`](docs/configuration.md).
+
 ## Exit codes
 
 | Code | Meaning |
@@ -274,10 +298,19 @@ pipeline:
 | `3` | Git error |
 | `4` | Internal error |
 
-## Documentation map
+## Documentation
 
-- [`docs/cli.md`](docs/cli.md) — canonical CLI reference
-- [`docs/run-json.md`](docs/run-json.md) — `--json` schema and compatibility rules
+| Guide | What it covers |
+| --- | --- |
+| [`docs/cli.md`](docs/cli.md) | Canonical command reference and flags |
+| [`docs/configuration.md`](docs/configuration.md) | `.vigilanty.yml` structure, field meanings, and patterns |
+| [`docs/providers.md`](docs/providers.md) | Provider setup, model behavior, and interactive selection flow |
+| [`docs/integrations.md`](docs/integrations.md) | Git hooks, CI pipelines, and automation entry points |
+| [`docs/examples.md`](docs/examples.md) | Successful runs, failure runs, and sample configurations |
+| [`docs/troubleshooting.md`](docs/troubleshooting.md) | Common setup, provider, git, and config failure modes |
+| [`docs/rules-file.md`](docs/rules-file.md) | How `AGENTS.md` and `rules_file` shape AI review behavior |
+| [`docs/architecture.md`](docs/architecture.md) | Internal system design for contributors and advanced users |
+| [`docs/run-json.md`](docs/run-json.md) | `--json` schema and compatibility rules |
 
 ## Contributing
 

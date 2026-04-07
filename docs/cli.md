@@ -1,5 +1,13 @@
 # Vigilanty CLI Reference
 
+## See also
+
+- [README](../README.md)
+- [Configuration](./configuration.md)
+- [Providers](./providers.md)
+- [Integrations](./integrations.md)
+- [`run --json`](./run-json.md)
+
 ## Global flags
 
 | Flag | Description |
@@ -86,6 +94,8 @@ Print the current Vigilanty version.
 
 Environment requirements depend on the provider CLI you install. For hosted providers, authenticate the official CLI first.
 
+For provider-specific guidance and model behavior, see [providers.md](./providers.md).
+
 ## Presets
 
 | Preset | Pipeline skeleton |
@@ -111,3 +121,11 @@ Environment requirements depend on the provider CLI you install. For hosted prov
 | `2` | Config error |
 | `3` | Git error |
 | `4` | Internal error |
+
+## Related docs
+
+- [Configuration guide](./configuration.md)
+- [Provider guide](./providers.md)
+- [Integrations](./integrations.md)
+- [Examples](./examples.md)
+- [Troubleshooting](./troubleshooting.md)
